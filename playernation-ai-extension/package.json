@@ -1,0 +1,28 @@
+{
+  "name": "playernation-ai-extension",
+  "version": "1.0.0",
+  "description": "AI-Powered Chrome Extension for Football Match Event Logging on PlayerNation",
+  "main": "background/service-worker.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "test:timestamps": "node --test tests/timestamps.test.js",
+    "test:capture": "node --test tests/video-capture.test.js",
+    "backend": "python server/server.py",
+    "start": "python server/server.py"
+  },
+  "keywords": [
+    "chrome-extension",
+    "manifest-v3",
+    "yolo",
+    "football",
+    "computer-vision",
+    "playernation",
+    "event-logging"
+  ],
+  "author": "PlayerNation AI Extension Team",
+  "license": "MIT",
+  "dependencies": {
+    "onnxruntime-web": "^1.30.0"
+  }
+}

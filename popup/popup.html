@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlayerNation AI Event Logger</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="pulse-icon">⚽</div>
+        <div>
+          <h1 class="app-title">Live Video <span class="badge-ai">AI VISION</span></h1>
+          <p class="app-subtitle">Sports Tracking & Match Event Logger</p>
+        </div>
+      </div>
+      <div class="header-right" style="display:flex; align-items:center; gap:8px;">
+        <span class="source-pill" id="sourceDomainPill">🌐 Detecting Tab</span>
+        <div class="header-status" id="headerStatusBadge">
+          <span class="status-dot dot-idle"></span>
+          <span class="status-text" id="headerStatusText">IDLE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Section A: Controls -->
+    <section class="panel section-controls">
+      <div class="panel-header">
+        <h2>A. Controls</h2>
+        <div class="auto-toggle-wrapper">
+          <label class="toggle-label" for="autoLogToggle">Auto Log</label>
+          <input type="checkbox" id="autoLogToggle" class="switch-input">
+          <label for="autoLogToggle" class="switch-slider"></label>
+        </div>
+      </div>
+      <div class="button-group primary-controls">
+        <button id="btnStart" class="btn btn-primary">
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Start Detection
+        </button>
+        <button id="btnPause" class="btn btn-secondary" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          Pause
+        </button>
+        <button id="btnResume" class="btn btn-secondary" disabled style="display:none;">
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          Resume
+        </button>
+        <button id="btnStop" class="btn btn-danger" disabled>
+          <svg class="icon" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h12v12H6z"/></svg>
+          Stop
+        </button>
+      </div>
+
+      <div class="export-actions">
+        <button id="btnToggleHud" class="btn btn-sm btn-ghost">
+          📺 Toggle On-Screen Overlay HUD
+        </button>
+        <div class="export-group">
+          <button id="btnExportJson" class="btn btn-sm btn-outline">Export JSON</button>
+          <button id="btnExportCsv" class="btn btn-sm btn-outline">Export CSV</button>
+          <button id="btnClearLogs" class="btn btn-sm btn-outline btn-clear">Clear</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section B: Live Detection Status -->
+    <section class="panel section-status">
+      <div class="panel-header">
+        <h2>B. Live Detection Status</h2>
+        <div class="clock-wrapper">
+          <span class="badge-live-stream" id="badgeLiveStream" style="display:none;">🔴 LIVE</span>
+          <span class="video-clock mono" id="videoClockDisplay">00:00</span>
+        </div>
+      </div>
+      <div class="status-grid">
+        <div class="status-card">
+          <span class="card-label">Video Capture</span>
+          <span class="card-val" id="statVideoCapture">No Video Found</span>
+          <span class="card-meta" id="statVideoMeta">Ready to attach</span>
+        </div>
+        <div class="status-card">
+          <span class="card-label">YOLO Model</span>
+          <span class="card-val" id="statModel">YOLOv8n ONNX</span>
+          <span class="card-meta" id="statModelMeta">WASM / WebGPU</span>
+        </div>
+        <div class="status-card">
+          <span class="card-label">Inference Speed</span>
+          <span class="card-val mono" id="statSpeed">-- FPS</span>
+          <span class="card-meta" id="statLatency">0 ms latency</span>
+        </div>
+        <div class="status-card">
+          <span class="card-label">Detected Football</span>
+          <span class="card-val" id="statFootball">Not Visible</span>
+          <span class="card-meta mono" id="statFootballMeta">Conf: --%</span>
+        </div>
+        <div class="status-card">
+          <span class="card-label">Detected Players</span>
+          <span class="card-val mono" id="statPlayers">0 Players</span>
+          <span class="card-meta" id="statTrackingMeta">Tracking active</span>
+        </div>
+        <div class="status-card team-config-card">
+          <span class="card-label">Team Colors</span>
+          <div class="team-color-pickers">
+            <div class="team-picker">
+              <label for="teamAColorInput" class="team-pill team-a-pill">Team A</label>
+              <input type="color" id="teamAColorInput" value="#ffffff" title="Team A Jersey Color">
+            </div>
+            <div class="team-picker">
+              <label for="teamBColorInput" class="team-pill team-b-pill">Team B</label>
+              <input type="color" id="teamBColorInput" value="#dc2626" title="Team B Jersey Color">
+            </div>
+          </div>
+          <span class="card-meta" id="statTeamMeta">Jersey color sampling</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section C: Event Suggestions -->
+    <section class="panel section-suggestions">
+      <div class="panel-header">
+        <h2>C. Event Suggestions <span class="badge-count" id="suggestionCount">0</span></h2>
+        <span class="helper-text">Assisted Logging Mode (Review & Confirm)</span>
+      </div>
+      <div class="suggestions-container" id="suggestionsContainer">
+        <div class="empty-placeholder" id="suggestionsEmpty">
+          <p>No pending event suggestions.</p>
+          <span class="placeholder-hint">Start detection to analyze match action in real time.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section D: Live Log Table -->
+    <section class="panel section-logs">
+      <div class="panel-header">
+        <h2>D. Live Match Log Table</h2>
+        <div class="filter-controls">
+          <select id="logFilterType" class="select-filter">
+            <option value="ALL">All Events</option>
+            <option value="shot">Shots</option>
+            <option value="goal">Goals</option>
+            <option value="pass">Passes</option>
+            <option value="defensive-action">Defense</option>
+            <option value="save">Saves</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="log-table" id="logTable">
+          <thead>
+            <tr>
+              <th>Match Time</th>
+              <th>Event</th>
+              <th>Team</th>
+              <th>Player</th>
+              <th>Conf.</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="logTableBody">
+            <tr class="empty-row" id="logEmptyRow">
+              <td colspan="7">No match events logged yet.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Edit Event Modal -->
+    <div class="modal-overlay" id="editModalOverlay" style="display:none;">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>Edit Match Event</h3>
+          <button id="btnModalClose" class="btn-close">&times;</button>
+        </div>
+        <form id="editEventForm" class="modal-body">
+          <input type="hidden" id="editEventId">
+          <div class="form-group">
+            <label for="editMatchTime">Match Timestamp (MM:SS)</label>
+            <input type="text" id="editMatchTime" class="form-input" required pattern="^[0-9]+:[0-9]{2}$">
+          </div>
+          <div class="form-group">
+            <label for="editEventType">Event Type</label>
+            <select id="editEventType" class="form-input">
+              <option value="short-pass">Short Pass (P)</option>
+              <option value="long-pass">Long Pass (LP)</option>
+              <option value="shot">Shot (S)</option>
+              <option value="goal">Goal (G)</option>
+              <option value="defensive-action">Defensive Action (DA)</option>
+              <option value="clearance">Clearance (C)</option>
+              <option value="save">Save (S)</option>
+              <option value="foul">Foul (F)</option>
+              <option value="own-goal">Own Goal (OG)</option>
+              <option value="cross">Cross</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="editTeam">Team</label>
+            <select id="editTeam" class="form-input">
+              <option value="Team A">Team A</option>
+              <option value="Team B">Team B</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="editPlayer">Player (PID or Name)</label>
+            <input type="text" id="editPlayer" class="form-input" placeholder="e.g. A9, B10, Unknown">
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="btnModalCancel" class="btn btn-secondary">Cancel</button>
+            <button type="submit" id="btnModalSave" class="btn btn-primary">Save Changes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toastNotification" class="toast-notification" style="display:none;"></div>
+  </div>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

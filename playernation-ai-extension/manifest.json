@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "PlayerNation AI Football Event Logger",
+  "version": "1.0.0",
+  "description": "AI-powered sports tracking & match event detection on live videos across the web (YouTube, Twitch, sports streams, PlayerNation).",
+  "icons": {
+    "16": "assets/icon16.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "permissions": [
+    "tabCapture",
+    "activeTab",
+    "storage",
+    "unlimitedStorage",
+    "scripting",
+    "declarativeNetRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "PlayerNation AI Live Video Vision",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "detector/ort/ort.min.js",
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "utils/*",
+        "detector/*",
+        "detector/ort/*",
+        "tracking/*",
+        "events/*",
+        "integration/*",
+        "logs/*",
+        "models/*",
+        "assets/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  }
+}

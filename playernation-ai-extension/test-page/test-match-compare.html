@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlayerNation Match Compare - Simulation Test Bench</title>
+  <style>
+    :root {
+      --bg-dark: #0a0e17;
+      --card-bg: #111827;
+      --card-border: #1f293d;
+      --accent-green: #10b981;
+      --accent-blue: #38bdf8;
+      --accent-red: #ef4444;
+      --accent-amber: #f59e0b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--card-border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand-badge {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+      font-weight: 800;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+    }
+
+    .match-url-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      background: #1e293b;
+      color: var(--accent-blue);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sync-badge {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: var(--accent-green);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .compare-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      width: 100%;
+    }
+
+    @media (max-width: 1080px) {
+      .compare-container {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .match-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      position: relative;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .match-card.is-active {
+      border-color: var(--accent-green);
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.15);
+    }
+
+    .match-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .match-title {
+      font-weight: 700;
+      color: #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .match-id-tag {
+      font-family: monospace;
+      font-size: 10px;
+      color: var(--text-muted);
+      background: #090d16;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    .video-viewport {
+      position: relative;
+      width: 100%;
+      height: 380px;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      cursor: pointer;
+    }
+
+    .active-indicator-tag {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(10, 14, 23, 0.85);
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+      font-size: 10px;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 4px;
+      z-index: 10;
+      pointer-events: none;
+    }
+
+    .video-load-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: #090d16;
+      padding: 6px 10px;
+      border-radius: 6px;
+      flex-wrap: wrap;
+    }
+
+    .file-input-btn {
+      padding: 4px 8px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: white;
+      border-radius: 4px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+
+    .controls-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .timeline-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .scrubber {
+      flex: 1;
+      accent-color: var(--accent-green);
+      cursor: pointer;
+    }
+
+    .timecode {
+      font-family: monospace;
+      font-size: 13px;
+      color: var(--accent-green);
+      min-width: 60px;
+      font-weight: bold;
+    }
+
+    .action-panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .action-buttons-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pn-btn {
+      padding: 7px 12px;
+      border-radius: 6px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .pn-btn:hover { background: #334155; border-color: #475569; }
+    .pn-btn:active { transform: translateY(1px); }
+    .pn-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .btn-green { background: #065f46; border-color: #10b981; }
+    .btn-green:hover { background: #047857; }
+    .btn-red { background: #991b1b; border-color: #ef4444; }
+    .btn-red:hover { background: #b91c1c; }
+    .btn-yellow { background: #92400e; border-color: #f59e0b; }
+    .btn-yellow:hover { background: #b45309; }
+    .btn-blue { background: #075985; border-color: #38bdf8; }
+    .btn-blue:hover { background: #0284c7; }
+
+    .audit-section {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .audit-section { grid-template-columns: 1fr; }
+    }
+
+    .audit-box {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      height: 120px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .audit-log-line {
+      display: flex;
+      gap: 8px;
+      color: #94a3b8;
+    }
+
+    .audit-log-line.event-injected {
+      color: #38bdf8;
+      font-weight: 600;
+    }
+
+    .tip-banner {
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: #bae6fd;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-left">
+      <div class="brand-row">
+        <span class="brand-badge">PLAYERNATION</span>
+        <span style="font-size: 14px; font-weight: 700; color: #fff;">Match Compare Video Suite</span>
+      </div>
+      <div class="match-url-pill">
+        <span>🔗 /match-compare/454ba202-b516-45ca-9d69-543be6c16101/a710594e-3048-4cb6-9f3b-9724b986f8e0</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <span class="sync-badge" id="syncStatusBadge">⚡ DUAL SYNCHRONIZED PLAYBACK</span>
+      <button class="pn-btn" id="btnToggleSync">Toggle Sync Link</button>
+      <button class="pn-btn btn-blue" id="btnFocusMatch1">Focus Match 1</button>
+      <button class="pn-btn" id="btnFocusMatch2">Focus Match 2</button>
+    </div>
+  </header>
+
+  <div class="tip-banner">
+    <span>💡 <strong>Extension Testing Guide:</strong> Click either video to shift the active AI detection canvas and HUD to that match. Open the <strong>PlayerNation AI Vision</strong> extension popup and click <strong>Start Detection</strong> to observe real-time tracking, live clock sync, and button auto-injection!</span>
+  </div>
+
+  <main class="compare-container">
+    <!-- Match 1 Card -->
+    <div class="match-card is-active" id="cardMatch1">
+      <div class="match-header">
+        <div class="match-title">
+          <span>Match A: FC Alpha vs Sporting Beta</span>
+          <span class="match-id-tag">ID: 454ba202</span>
+        </div>
+        <div style="font-family: monospace; font-size: 13px; color: var(--accent-green);" id="clockMatch1">00:00</div>
+      </div>
+
+      <div class="video-viewport" id="viewport1">
+        <div class="active-indicator-tag" id="tagActive1">TARGET TRACKED VIDEO</div>
+        <video id="matchVideo1" class="compare-video active" data-match-id="454ba202-b516-45ca-9d69-543be6c16101" data-active-player="true" controls autoplay loop playsinline muted></video>
+      </div>
+
+      <div class="video-load-bar">
+        <span>Source: 30 FPS Canvas Pitch Sim</span>
+        <span>|</span>
+        <label class="file-input-btn">
+          📂 Load Local Video File
+          <input type="file" id="filePicker1" accept="video/*" style="display: none;">
+        </label>
+        <span id="fileName1" style="color: #64748b;">(or drag & drop MP4)</span>
+      </div>
+    </div>
+
+    <!-- Match 2 Card -->
+    <div class="match-card" id="cardMatch2">
+      <div class="match-header">
+        <div class="match-title">
+          <span>Match B: Dynamo Gamma vs United Delta</span>
+          <span class="match-id-tag">ID: a710594e</span>
+        </div>
+        <div style="font-family: monospace; font-size: 13px; color: var(--accent-blue);" id="clockMatch2">00:00</div>
+      </div>
+
+      <div class="video-viewport" id="viewport2">
+        <div class="active-indicator-tag" id="tagActive2" style="display: none; border-color: var(--accent-blue); color: var(--accent-blue);">TARGET TRACKED VIDEO</div>
+        <video id="matchVideo2" class="compare-video" data-match-id="a710594e-3048-4cb6-9f3b-9724b986f8e0" controls autoplay loop playsinline muted></video>
+      </div>
+
+      <div class="video-load-bar">
+        <span>Source: 30 FPS Tactical Pitch Sim</span>
+        <span>|</span>
+        <label class="file-input-btn">
+          📂 Load Local Video File
+          <input type="file" id="filePicker2" accept="video/*" style="display: none;">
+        </label>
+        <span id="fileName2" style="color: #64748b;">(or drag & drop MP4)</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- Control & Logging Bar -->
+  <section class="controls-bar">
+    <div class="timeline-row">
+      <button class="pn-btn btn-green" id="btnMasterPlayPause">⏸ Pause Both</button>
+      <span class="timecode" id="masterClockDisplay">00:00</span>
+      <input type="range" class="scrubber" id="masterScrubber" min="0" max="600" value="0" step="1">
+      <button class="pn-btn" id="btnSpeed05">0.5x</button>
+      <button class="pn-btn btn-blue" id="btnSpeed1">1.0x</button>
+      <button class="pn-btn" id="btnSpeed15">1.5x</button>
+      <button class="pn-btn" id="btnSpeed2">2.0x</button>
+    </div>
+
+    <div class="action-panel-title">PlayerNation Live Event Logging Panel (Synchronized with Extension Adapter)</div>
+    <div class="action-buttons-row" id="pnActionButtons">
+      <button id="short-passBtn" class="pn-btn btn-green" data-action="short-pass">Short Pass (p)</button>
+      <button id="long-passBtn" class="pn-btn btn-green" data-action="long-pass">Long Pass (l)</button>
+      <button id="shotBtn" class="pn-btn btn-green" data-action="shot">Shot (x)</button>
+      <button id="goalBtn" class="pn-btn btn-green" data-action="goal">Goal (g)</button>
+      <button id="defensive-actionBtn" class="pn-btn btn-red" data-action="defensive-action">Defensive Action (e)</button>
+      <button id="clearanceBtn" class="pn-btn btn-red" data-action="clearance">Clearance (r)</button>
+      <button id="saveBtn" class="pn-btn btn-yellow" data-action="save">Save (s)</button>
+      <button id="free-kickBtn" class="pn-btn" data-action="foul">Free Kick (2)</button>
+      <button id="cornerBtn" class="pn-btn" data-action="corner">Corner (c)</button>
+      <button id="penaltyBtn" class="pn-btn btn-yellow" data-action="penalty">Penalty (k)</button>
+    </div>
+
+    <div class="audit-section">
+      <div>
+        <div class="action-panel-title" style="margin-bottom: 6px;">Live Event Audit Stream (Extension Injections)</div>
+        <div class="audit-box" id="auditStream">
+          <div class="audit-log-line">[System] PlayerNation match compare harness initialized.</div>
+          <div class="audit-log-line">[System] Video 1 & Video 2 active. Open Extension popup to start detection.</div>
+        </div>
+      </div>
+      <div>
+        <div class="action-panel-title" style="margin-bottom: 6px;">Telemetry & Active Player State</div>
+        <div class="audit-box" id="telemetryBox">
+          <div class="audit-log-line">Active Video: <span id="telActiveVideo" style="color:#10b981; font-weight:bold;">Video #1 (Match 454ba202)</span></div>
+          <div class="audit-log-line">Tracked Resolution: 1280x720 @ 30 FPS</div>
+          <div class="audit-log-line">Sync State: Linked (Match 1 & 2 scrubbers locked)</div>
+          <div class="audit-log-line">DOM Buttons: 10 Action Buttons Bound & Listening</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="test-match-compare.js"></script>
+</body>
+</html>

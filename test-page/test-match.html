@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PlayerNation Test Match Simulation</title>
+  <style>
+    body {
+      background: #0f172a;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    header {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .main-stage {
+      width: 100%;
+      max-width: 900px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .video-wrapper {
+      position: relative;
+      width: 100%;
+      height: 506px;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid #334155;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .controls-panel {
+      background: #1e293b;
+      padding: 12px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pn-btn {
+      padding: 6px 12px;
+      border-radius: 4px;
+      border: 1px solid #475569;
+      background: #334155;
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .pn-btn:hover { background: #475569; }
+    .pn-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-green { background: #15803d; border-color: #22c55e; }
+    .btn-red { background: #b91c1c; border-color: #ef4444; }
+    .btn-yellow { background: #b45309; border-color: #f59e0b; }
+    .log-audit {
+      background: #090d16;
+      border: 1px solid #1e293b;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-family: monospace;
+      font-size: 11px;
+      height: 90px;
+      overflow-y: auto;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>PlayerNation Match Logger Test Bench</h2>
+    <div id="simClock" style="font-family: monospace; font-size: 16px; color: #10b981;">00:00:00</div>
+  </header>
+
+  <div class="main-stage">
+    <div class="video-wrapper">
+      <!-- Standard HTML5 Video element matching PlayerNation DOM -->
+      <video id="matchVideo" controls autoplay loop playsinline muted></video>
+    </div>
+
+    <!-- Mock PlayerNation Logger Interface -->
+    <div class="controls-panel">
+      <div style="font-size: 11px; color: #94a3b8; font-weight: bold;">PLAYERNATION EVENT BUTTONS (MATCHING LIVE APP IDs)</div>
+      <div class="action-row">
+        <button id="short-passBtn" class="pn-btn btn-green">Short Pass (p)</button>
+        <button id="long-passBtn" class="pn-btn btn-green">Long Pass (l)</button>
+        <button id="shotBtn" class="pn-btn btn-green">Shot (x)</button>
+        <button id="goalBtn" class="pn-btn btn-green">Goal (g)</button>
+        <button id="defensive-actionBtn" class="pn-btn btn-red">Defensive Action (e)</button>
+        <button id="clearanceBtn" class="pn-btn btn-red">Clearance (r)</button>
+        <button id="saveBtn" class="pn-btn btn-yellow">Save (s)</button>
+        <button id="free-kickBtn" class="pn-btn">Free Kick (2)</button>
+      </div>
+
+      <div style="font-size: 11px; color: #94a3b8; font-weight: bold; margin-top: 6px;">PLAYER NATION LOG AUDIT STREAM</div>
+      <div class="log-audit" id="auditStream">
+        <div>[System] Test bench initialized. Load extension to test video capture.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="test-match.js"></script>
+</body>
+</html>

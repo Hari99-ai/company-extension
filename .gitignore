@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Generated output
+coverage/
+dist/
+build/
+*.log
+playernation-ai-extension.zip
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
