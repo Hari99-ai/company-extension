@@ -1572,6 +1572,7 @@
         <div class="pn-hud-controls">
           <button class="pn-hud-btn" id="pnBtnSwitchVideo" style="display:none; font-size:9px; background:rgba(255,255,255,0.1); padding:2px 6px;" title="Switch tracked match video">📹 Switch</button>
           <button class="pn-hud-btn" id="pnBtnTagBall" style="font-size:9px; background:rgba(34,197,94,0.18); border:1px solid rgba(34,197,94,0.4); color:#4ade80; padding:2px 7px; border-radius:4px; font-weight:600; cursor:pointer;" title="Manually pinpoint/lock football (Hotkeys: 'B' or Shift+Click video)">🎯 Pinpoint</button>
+          <button class="pn-hud-btn" id="pnBtnLockSize" title="Lock panel size" aria-label="Lock panel size">↔</button>
           <button class="pn-hud-btn" id="pnBtnMin" title="Minimize">_</button>
           <button class="pn-hud-btn" id="pnBtnClose" title="Close">&times;</button>
         </div>
@@ -1673,6 +1674,53 @@
         }
       };
     }
+
+    const btnLockSize = hud.querySelector('#pnBtnLockSize');
+    const fixedSizeKey = 'pnHudFixedSize';
+    const setFixedSize = size => {
+      if (!size || !Number.isFinite(size.width) || !Number.isFinite(size.height)) return false;
+      hud.style.width = `${size.width}px`;
+      hud.style.height = `${size.height}px`;
+      hud.classList.add('pn-hud-size-fixed');
+      btnLockSize.textContent = '🔒';
+      btnLockSize.title = 'Unlock panel size';
+      btnLockSize.setAttribute('aria-label', 'Unlock panel size');
+      return true;
+    };
+
+    chrome.storage.local.get(fixedSizeKey, data => {
+      if (chrome.runtime.lastError) {
+        console.error('[PlayerNation AI Logger] Could not load HUD size:', chrome.runtime.lastError.message);
+        return;
+      }
+      if (data[fixedSizeKey]) setFixedSize(data[fixedSizeKey]);
+    });
+
+    btnLockSize.onclick = () => {
+      if (hud.classList.contains('pn-hud-size-fixed')) {
+        hud.classList.remove('pn-hud-size-fixed');
+        hud.style.width = '';
+        hud.style.height = '';
+        btnLockSize.textContent = '↔';
+        btnLockSize.title = 'Lock panel size';
+        btnLockSize.setAttribute('aria-label', 'Lock panel size');
+        chrome.storage.local.remove(fixedSizeKey, () => {
+          if (chrome.runtime.lastError) {
+            console.error('[PlayerNation AI Logger] Could not clear HUD size:', chrome.runtime.lastError.message);
+          }
+        });
+        return;
+      }
+
+      const { width, height } = hud.getBoundingClientRect();
+      const size = { width: Math.round(width), height: Math.round(height) };
+      if (!setFixedSize(size)) return;
+      chrome.storage.local.set({ [fixedSizeKey]: size }, () => {
+        if (chrome.runtime.lastError) {
+          console.error('[PlayerNation AI Logger] Could not save HUD size:', chrome.runtime.lastError.message);
+        }
+      });
+    };
 
     const toggleLayer = (key, pillEl, name) => {
       state.overlaySettings[key] = !state.overlaySettings[key];
