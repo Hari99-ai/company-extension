@@ -354,6 +354,21 @@
         sendResponse({ success: true });
         break;
 
+      case 'CMD_DELETE_EVENT':
+        if (!payload?.id || !state.eventStore) {
+          sendResponse({ success: false, error: 'Event ID is missing or the event store is unavailable.' });
+          break;
+        }
+        eventStoreReady.then(() => {
+          const deleted = state.eventStore.deleteEvent(payload.id);
+          state.telemetry.latestLogs = state.eventStore.getAll();
+          updateFloatingHud(true);
+          sendResponse({ success: deleted });
+        }).catch(err => {
+          sendResponse({ success: false, error: `Could not remove event: ${err.message}` });
+        });
+        return true;
+
       case 'CMD_EXPORT_MEMORY_DIAGNOSTIC':
         if (state.memoryManager) {
           const diag = state.memoryManager.exportDiagnostic();

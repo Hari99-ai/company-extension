@@ -825,6 +825,7 @@ function refreshLogs() {
 }
 
 function renderLogTable() {
+  if (elements.btnClearLogs) elements.btnClearLogs.disabled = cachedLogs.length === 0;
   const filter = elements.logFilterType.value;
   const filtered = filter === 'ALL' ? cachedLogs : cachedLogs.filter(e => e.eventType === filter);
 
@@ -856,12 +857,47 @@ function renderLogTable() {
       <td class="mono">${confPct}%</td>
       <td><span class="status-badge ${escapeHtml(statusClass)}">${escapeHtml(log.status || 'review')}</span></td>
       <td>
-        <button class="btn btn-sm btn-outline btn-table-edit">Edit</button>
+        <div class="log-actions">
+          <button class="btn btn-sm btn-outline btn-table-edit">Edit</button>
+          <button class="btn btn-sm btn-outline btn-clear btn-table-remove">Remove</button>
+        </div>
       </td>
     `;
 
     tr.querySelector('.btn-table-edit').onclick = () => openEditModal(log);
+    tr.querySelector('.btn-table-remove').onclick = () => removeLog(log);
     elements.logTableBody.appendChild(tr);
+  });
+}
+
+function removeLog(log) {
+  const eventLabel = log.eventLabel || formatEventLabel(log.eventType);
+  if (!confirm(`Remove this ${eventLabel} log at ${formatMatchTime(log.matchTimestamp)}?`)) return;
+
+  chrome.storage.local.get('eventLogs', (data) => {
+    if (chrome.runtime.lastError) {
+      console.error('Could not load match logs before removal:', chrome.runtime.lastError.message);
+      showToast('Could not remove log');
+      return;
+    }
+    const logs = Array.isArray(data.eventLogs) ? data.eventLogs : [];
+    const remainingLogs = logs.filter(item => item.id !== log.id);
+
+    chrome.storage.local.set({ eventLogs: remainingLogs }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Could not remove match log:', chrome.runtime.lastError.message);
+        showToast('Could not remove log');
+        return;
+      }
+
+      cachedLogs = remainingLogs;
+      renderLogTable();
+      sendTabMessage({
+        type: 'CMD_DELETE_EVENT',
+        payload: { id: log.id }
+      }).catch(err => console.warn('Could not sync removed log with active tab:', err));
+      showToast('Log removed');
+    });
   });
 }
 
@@ -1038,6 +1074,11 @@ function exportLogsAsCsv() {
 function clearAllLogs() {
   if (confirm('Are you sure you want to clear all match event logs?')) {
     chrome.storage.local.set({ eventLogs: [] }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Could not clear match logs:', chrome.runtime.lastError.message);
+        showToast('Could not remove logs');
+        return;
+      }
       cachedLogs = [];
       renderLogTable();
       sendTabMessage({ type: 'CMD_CLEAR_LOGS' });

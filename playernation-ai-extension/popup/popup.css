@@ -959,6 +959,13 @@ body {
   border: 1px solid var(--border-subtle);
 }
 
+.filter-controls,
+.log-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .log-table {
   width: 100%;
   border-collapse: collapse;
