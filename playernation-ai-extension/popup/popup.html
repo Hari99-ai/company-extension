@@ -274,6 +274,20 @@
       </div>
     </section>
 
+    <section class="panel bulk-log-panel">
+      <div class="panel-header">
+        <h2>Add Bulk Match Logs</h2>
+        <span class="helper-text">One event per line</span>
+      </div>
+      <label class="bulk-log-label" for="bulkLogInput">Paste events in this format</label>
+      <textarea id="bulkLogInput" class="bulk-log-input" rows="3" spellcheck="false" placeholder="End at 00:10:04 by (Name: , PID: A1, Jersey: , Manual ID: )
+Shot at 00:10:15 by (Name: , PID: A1, Jersey: , Manual ID: )"></textarea>
+      <div class="bulk-log-actions">
+        <span id="bulkLogStatus" class="bulk-log-status" role="status" aria-live="polite"></span>
+        <button id="btnAddBulkLogs" class="btn btn-sm btn-primary">Add Logs</button>
+      </div>
+    </section>
+
     <!-- Section D: Live Log Table -->
     <section class="panel section-logs">
       <div class="panel-header">

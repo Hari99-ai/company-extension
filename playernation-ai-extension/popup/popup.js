@@ -5,6 +5,7 @@
  */
 
 import { formatMatchTime, parseMatchTime } from '../utils/timestamps.js';
+import { parseBulkEventLogs } from '../logs/bulk-log-parser.js';
 
 // DOM Elements
 const elements = {
@@ -22,6 +23,9 @@ const elements = {
   btnExportJson: document.getElementById('btnExportJson'),
   btnExportCsv: document.getElementById('btnExportCsv'),
   btnClearLogs: document.getElementById('btnClearLogs'),
+  bulkLogInput: document.getElementById('bulkLogInput'),
+  bulkLogStatus: document.getElementById('bulkLogStatus'),
+  btnAddBulkLogs: document.getElementById('btnAddBulkLogs'),
 
   badgeLiveStream: document.getElementById('badgeLiveStream'),
   videoClockDisplay: document.getElementById('videoClockDisplay'),
@@ -282,6 +286,7 @@ function setupEventListeners() {
   if (elements.btnExportJson) elements.btnExportJson.addEventListener('click', exportLogsAsJson);
   if (elements.btnExportCsv) elements.btnExportCsv.addEventListener('click', exportLogsAsCsv);
   if (elements.btnClearLogs) elements.btnClearLogs.addEventListener('click', clearAllLogs);
+  if (elements.btnAddBulkLogs) elements.btnAddBulkLogs.addEventListener('click', addBulkLogs);
 
   if (elements.logFilterType) elements.logFilterType.addEventListener('change', renderLogTable);
 
@@ -843,13 +848,15 @@ function renderLogTable() {
 
     tr.innerHTML = `
       <td class="mono font-bold">${formatMatchTime(log.matchTimestamp)}</td>
-      <td><strong>${log.eventType}</strong></td>
-      <td>${log.team || 'Unknown'}</td>
-      <td>${log.playerId || 'Unknown'}</td>
+      <td><strong>${escapeHtml(log.eventLabel || formatEventLabel(log.eventType))}</strong>
+        <code class="bulk-log-entry">${escapeHtml(formatBulkLogEntry(log))}</code>
+      </td>
+      <td>${escapeHtml(log.team || 'Unknown')}</td>
+      <td>${escapeHtml(log.pid || log.playerId || 'Unknown')}</td>
       <td class="mono">${confPct}%</td>
-      <td><span class="status-badge ${statusClass}">${log.status}</span></td>
+      <td><span class="status-badge ${escapeHtml(statusClass)}">${escapeHtml(log.status || 'review')}</span></td>
       <td>
-        <button class="btn btn-sm btn-outline btn-table-edit" data-id="${log.id}">Edit</button>
+        <button class="btn btn-sm btn-outline btn-table-edit">Edit</button>
       </td>
     `;
 
@@ -858,10 +865,94 @@ function renderLogTable() {
   });
 }
 
+function formatBulkLogEntry(log) {
+  const label = log.eventLabel || formatEventLabel(log.eventType);
+  return `${label} at ${formatMatchTime(log.matchTimestamp, true)} by ` +
+    `(Name: ${log.playerName || ''}, PID: ${log.pid || log.playerId || ''}, ` +
+    `Jersey: ${log.jersey || ''}, Manual ID: ${log.manualId || ''})`;
+}
+
+function formatEventLabel(eventType) {
+  return String(eventType || 'event')
+    .split('-')
+    .map(part => part ? part[0].toUpperCase() + part.slice(1) : '')
+    .join(' ');
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char]);
+}
+
+async function addBulkLogs() {
+  const { events, errors } = parseBulkEventLogs(elements.bulkLogInput.value);
+  if (events.length === 0) {
+    showBulkLogStatus(errors.map(error =>
+      error.line ? `Line ${error.line}: ${error.message}` : error.message
+    ).join(' '), true);
+    return;
+  }
+
+  elements.btnAddBulkLogs.disabled = true;
+  try {
+    let response = await sendTabMessage({
+      type: 'CMD_ADD_BULK_EVENTS',
+      payload: { events }
+    });
+
+    if (!response?.success && currentTabId &&
+      (response?.error?.includes('Receiving end does not exist') ||
+        response?.error?.includes('Could not establish connection'))) {
+      await ensureContentScriptInjected(currentTabId);
+      response = await sendTabMessage({
+        type: 'CMD_ADD_BULK_EVENTS',
+        payload: { events }
+      });
+    }
+
+    if (!response?.success) {
+      throw new Error(response?.error || 'The active page could not save these events.');
+    }
+
+    const invalidLineNumbers = new Set(errors.map(error => error.line).filter(line => line > 0));
+    elements.bulkLogInput.value = invalidLineNumbers.size
+      ? elements.bulkLogInput.value.split(/\r?\n/)
+        .filter((line, index) => invalidLineNumbers.has(index + 1))
+        .join('\n')
+      : '';
+    refreshLogs();
+    const issues = errors.length
+      ? ` ${errors.map(error => error.line ? `Line ${error.line}: ${error.message}` : error.message).join(' ')}`
+      : '';
+    showBulkLogStatus(`Added ${response.added} log(s); ${response.duplicates} duplicate(s) skipped.${issues}`);
+  } catch (err) {
+    showBulkLogStatus(`Could not add logs: ${err.message}`, true);
+  } finally {
+    elements.btnAddBulkLogs.disabled = false;
+  }
+}
+
+function showBulkLogStatus(message, isError = false) {
+  elements.bulkLogStatus.textContent = message;
+  elements.bulkLogStatus.classList.toggle('is-error', isError);
+}
+
 function openEditModal(item) {
   elements.editEventId.value = item.id;
   elements.editMatchTime.value = formatMatchTime(item.matchTimestamp);
   elements.editEventType.value = item.eventType;
+  if (elements.editEventType.value !== item.eventType) {
+    const option = document.createElement('option');
+    option.value = item.eventType;
+    option.textContent = item.eventLabel || formatEventLabel(item.eventType);
+    elements.editEventType.add(option);
+    elements.editEventType.value = item.eventType;
+  }
   elements.editTeam.value = item.team || 'Unknown';
   elements.editPlayer.value = item.playerId || '';
   elements.editModalOverlay.style.display = 'flex';
@@ -885,8 +976,10 @@ function handleModalSave(e) {
       id,
       matchTimestamp: updatedSeconds,
       eventType: updatedType,
+      eventLabel: formatEventLabel(updatedType),
       team: updatedTeam,
-      playerId: updatedPlayer
+      playerId: updatedPlayer,
+      pid: updatedPlayer
     }
   }).then(() => {
     closeModal();
@@ -917,11 +1010,15 @@ function exportLogsAsCsv() {
     return;
   }
 
-  const headers = ['Match Time', 'Event Type', 'Team', 'Player', 'Confidence', 'Status', 'Timestamp Seconds'];
+  const headers = ['Match Time', 'Event Type', 'Team', 'Name', 'PID', 'Jersey', 'Manual ID', 'Player', 'Confidence', 'Status', 'Timestamp Seconds'];
   const rows = cachedLogs.map(log => [
     `"${formatMatchTime(log.matchTimestamp)}"`,
     `"${log.eventType}"`,
     `"${log.team || 'Unknown'}"`,
+    `"${log.playerName || ''}"`,
+    `"${log.pid || log.playerId || ''}"`,
+    `"${log.jersey || ''}"`,
+    `"${log.manualId || ''}"`,
     `"${log.playerId || 'Unknown'}"`,
     `"${Math.round((log.confidence || 0) * 100)}%"`,
     `"${log.status}"`,

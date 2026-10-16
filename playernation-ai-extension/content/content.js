@@ -12,21 +12,27 @@
   let getFootballTrainingReminderMinute, createFootballTrainingAnnotation;
   let FootballYoloDetector, PlayerTracker, BallTracker;
   let FootballEventAnalyzer, PlayerNationAdapter, MatchEventStore;
+  let getRecentEventsAroundTime;
   let LocalBackendClient;
   let FootballMemoryManager, TrackingState;
+  // Coordinate-transform helpers (imported below)
+  let modelBoxToVideoNorm, videoNormToModelNorm, computeLetterbox,
+      videoNormToCanvas, videoNormPointToCanvas, buildDebugInfo, drawDebugPanel;
 
   try {
-    const vcMod = await import(chrome.runtime.getURL('utils/video-capture.js'));
-    const tsMod = await import(chrome.runtime.getURL('utils/timestamps.js'));
-    const detMod = await import(chrome.runtime.getURL('detector/detector.js'));
-    const trkMod = await import(chrome.runtime.getURL('tracking/tracker.js'));
-    const ballMod = await import(chrome.runtime.getURL('tracking/ball-tracker.js'));
-    const memMod = await import(chrome.runtime.getURL('tracking/memory-manager.js'));
-    const evtMod = await import(chrome.runtime.getURL('events/event-analyzer.js'));
-    const adpMod = await import(chrome.runtime.getURL('integration/playernation-adapter.js'));
-    const storeMod = await import(chrome.runtime.getURL('logs/event-store.js'));
-    const bkdMod = await import(chrome.runtime.getURL('detector/backend-client.js'));
-    const trainingMod = await import(chrome.runtime.getURL('utils/football-training.js'));
+    const vcMod      = await import(chrome.runtime.getURL('utils/video-capture.js'));
+    const tsMod      = await import(chrome.runtime.getURL('utils/timestamps.js'));
+    const detMod     = await import(chrome.runtime.getURL('detector/detector.js'));
+    const trkMod     = await import(chrome.runtime.getURL('tracking/tracker.js'));
+    const ballMod    = await import(chrome.runtime.getURL('tracking/ball-tracker.js'));
+    const memMod     = await import(chrome.runtime.getURL('tracking/memory-manager.js'));
+    const evtMod     = await import(chrome.runtime.getURL('events/event-analyzer.js'));
+    const adpMod     = await import(chrome.runtime.getURL('integration/playernation-adapter.js'));
+    const storeMod   = await import(chrome.runtime.getURL('logs/event-store.js'));
+    const recentEventsMod = await import(chrome.runtime.getURL('logs/recent-events.js'));
+    const bkdMod     = await import(chrome.runtime.getURL('detector/backend-client.js'));
+    const trainingMod= await import(chrome.runtime.getURL('utils/football-training.js'));
+    const coordMod   = await import(chrome.runtime.getURL('utils/coord-transform.js'));
 
     VideoCaptureManager = vcMod.VideoCaptureManager;
     formatMatchTime = tsMod.formatMatchTime;
@@ -39,9 +45,18 @@
     FootballEventAnalyzer = evtMod.FootballEventAnalyzer;
     PlayerNationAdapter = adpMod.PlayerNationAdapter;
     MatchEventStore = storeMod.MatchEventStore;
+    getRecentEventsAroundTime = recentEventsMod.getRecentEventsAroundTime;
     LocalBackendClient = bkdMod.LocalBackendClient;
     getFootballTrainingReminderMinute = trainingMod.getFootballTrainingReminderMinute;
-    createFootballTrainingAnnotation = trainingMod.createFootballTrainingAnnotation;
+    createFootballTrainingAnnotation  = trainingMod.createFootballTrainingAnnotation;
+    // Coordinate-transform functions
+    modelBoxToVideoNorm    = coordMod.modelBoxToVideoNorm;
+    videoNormToModelNorm   = coordMod.videoNormToModelNorm;
+    computeLetterbox       = coordMod.computeLetterbox;
+    videoNormToCanvas      = coordMod.videoNormToCanvas;
+    videoNormPointToCanvas = coordMod.videoNormPointToCanvas;
+    buildDebugInfo         = coordMod.buildDebugInfo;
+    drawDebugPanel         = coordMod.drawDebugPanel;
   } catch (err) {
     console.error('[PlayerNation AI Logger] Module import failed:', err);
   }
@@ -78,7 +93,8 @@
       showBallTrail: true,
       showTelemetryBadge: true,
       playerConfidence: 0.25,
-      ballConfidence: 0.08
+      ballConfidence: 0.08,
+      debugCoords: false        // toggle with chrome.storage / popup
     },
     lastFramePackage: null,
     lastTrainingImageData: null,
@@ -158,10 +174,12 @@
   });
 
   // Initialize Event Store and Adapter
+  let eventStoreReady = Promise.resolve();
   if (MatchEventStore) {
     state.eventStore = new MatchEventStore();
-    state.eventStore.init().then(logs => {
+    eventStoreReady = state.eventStore.init().then(logs => {
       state.telemetry.latestLogs = logs;
+      return logs;
     });
   }
 
@@ -314,6 +332,21 @@
           sendResponse({ success: true });
         }
         break;
+
+      case 'CMD_ADD_BULK_EVENTS':
+        if (!Array.isArray(payload?.events) || !state.eventStore) {
+          sendResponse({ success: false, error: 'Bulk events are missing or the event store is unavailable.' });
+          break;
+        }
+        eventStoreReady.then(() => {
+          const { added, duplicates } = state.eventStore.addEvents(payload.events);
+          state.telemetry.latestLogs = state.eventStore.getAll();
+          updateFloatingHud(true);
+          sendResponse({ success: true, added: added.length, duplicates });
+        }).catch(err => {
+          sendResponse({ success: false, error: `Could not add bulk events: ${err.message}` });
+        });
+        return true;
 
       case 'CMD_CLEAR_LOGS':
         if (state.eventStore) state.eventStore.clear();
@@ -606,29 +639,60 @@
   }
 
   /**
-   * Maps bounding boxes from 640x640 model letterbox space back to original video normalized space [0..1].
+   * Maps bounding boxes from model-output normalised space (C) back to
+   * normalised video space (D) using the true inverse-letterbox formula.
+   *
+   * IMPORTANT: The old implementation divided by scaledW / scaledH which gave
+   * the wrong result for any video whose aspect ratio differs from 1:1 because
+   * it treated the scaled content region (e.g. 640×360) as if it were the full
+   * 640×640 model input. The correct operation is to:
+   *   1. Convert from model-norm to model-pixel  (×640)
+   *   2. Subtract the letterbox padding          (−padX, −padY)
+   *   3. Divide by the letterbox scale factor    (÷scale)
+   *   4. Normalise by intrinsic video dimensions (÷videoWidth, ÷videoHeight)
+   *
+   * videoWidth / videoHeight are read from the active video element at call
+   * time so the transform is always correct even if the video switches
+   * resolution mid-session.
+   *
+   * @param {object} box       – model-output normalised box { x, y, width, height }
+   * @param {object} letterbox – from VideoCaptureManager: { scale, padX, padY, scaledW, scaledH }
+   * @returns {object}         – normalised video coords (D) { x, y, width, height, cx, cy }
    */
   function unletterboxBox(box, letterbox) {
-    if (!box || !letterbox || !letterbox.scaledW || !letterbox.scaledH) return box;
-    const canvasX = box.x * 640;
-    const canvasY = box.y * 640;
-    const canvasW = box.width * 640;
-    const canvasH = box.height * 640;
+    if (!box || !letterbox || !letterbox.scale) return box;
 
-    const nx = Math.max(0, Math.min(1, (canvasX - letterbox.padX) / letterbox.scaledW));
-    const ny = Math.max(0, Math.min(1, (canvasY - letterbox.padY) / letterbox.scaledH));
-    const nw = Math.max(0.001, Math.min(1 - nx, canvasW / letterbox.scaledW));
-    const nh = Math.max(0.001, Math.min(1 - ny, canvasH / letterbox.scaledH));
+    const video = state.captureManager?.videoElement;
+    const videoWidth  = video?.videoWidth  || letterbox.scaledW / letterbox.scale || 1920;
+    const videoHeight = video?.videoHeight || letterbox.scaledH / letterbox.scale || 1080;
 
-    return {
-      ...box,
-      x: nx,
-      y: ny,
-      width: nw,
-      height: nh,
-      cx: nx + nw / 2,
-      cy: ny + nh / 2
-    };
+    // Use the canonical coord-transform function if it has been loaded.
+    if (typeof modelBoxToVideoNorm === 'function') {
+      return modelBoxToVideoNorm(box, letterbox, videoWidth, videoHeight);
+    }
+
+    // Fallback (in case the module hasn't loaded yet): correct formula inline.
+    const mpX1 = box.x * 640;
+    const mpY1 = box.y * 640;
+    const mpX2 = (box.x + box.width)  * 640;
+    const mpY2 = (box.y + box.height) * 640;
+
+    const vpX1 = (mpX1 - letterbox.padX) / letterbox.scale;
+    const vpY1 = (mpY1 - letterbox.padY) / letterbox.scale;
+    const vpX2 = (mpX2 - letterbox.padX) / letterbox.scale;
+    const vpY2 = (mpY2 - letterbox.padY) / letterbox.scale;
+
+    const cX1 = Math.max(0, vpX1);
+    const cY1 = Math.max(0, vpY1);
+    const cX2 = Math.min(videoWidth,  vpX2);
+    const cY2 = Math.min(videoHeight, vpY2);
+
+    const nx = cX1 / videoWidth;
+    const ny = cY1 / videoHeight;
+    const nw = Math.max(0.001, (cX2 - cX1) / videoWidth);
+    const nh = Math.max(0.001, (cY2 - cY1) / videoHeight);
+
+    return { ...box, x: nx, y: ny, width: nw, height: nh, cx: nx + nw / 2, cy: ny + nh / 2 };
   }
 
   /**
@@ -670,13 +734,34 @@
     let latencyMs = 0;
     let effectiveImageData = framePackage.imageData;
 
-    // Convert last known ball position into model canvas space [0..1] as hint for detector
+    // Convert last known ball position (normalised video D) → model-output norm (C) as hint.
+    // Uses the correct forward letterbox transform: D → A → B → C
     let hintCanvasX = null;
     let hintCanvasY = null;
     const curLetterbox = framePackage.letterbox;
-    if (state.currentDetections.ball && curLetterbox && curLetterbox.scaledW && curLetterbox.scaledH) {
-      hintCanvasX = (state.currentDetections.ball.cx * curLetterbox.scaledW + curLetterbox.padX) / 640;
-      hintCanvasY = (state.currentDetections.ball.cy * curLetterbox.scaledH + curLetterbox.padY) / 640;
+    const hintVideo = state.captureManager?.videoElement;
+    if (
+      state.currentDetections.ball &&
+      curLetterbox && curLetterbox.scale &&
+      hintVideo?.videoWidth && hintVideo?.videoHeight
+    ) {
+      if (typeof videoNormToModelNorm === 'function') {
+        const h = videoNormToModelNorm(
+          state.currentDetections.ball.cx,
+          state.currentDetections.ball.cy,
+          hintVideo.videoWidth,
+          hintVideo.videoHeight,
+          curLetterbox
+        );
+        hintCanvasX = h.hx;
+        hintCanvasY = h.hy;
+      } else {
+        // Inline fallback: D → A → B → C
+        const vpx = state.currentDetections.ball.cx * hintVideo.videoWidth;
+        const vpy = state.currentDetections.ball.cy * hintVideo.videoHeight;
+        hintCanvasX = Math.max(0, Math.min(1, (vpx * curLetterbox.scale + curLetterbox.padX) / 640));
+        hintCanvasY = Math.max(0, Math.min(1, (vpy * curLetterbox.scale + curLetterbox.padY) / 640));
+      }
     }
 
     // 1. Detection Phase (Handles CORS Streams & Non-CORS Streams)
@@ -1219,6 +1304,8 @@
     if (!state.overlayCanvas || !state.overlayCtx) return;
     state.lastFramePackage = framePackage;
     const ctx = state.overlayCtx;
+    // canvas.width / canvas.height are set by attachVideoOverlay() to the
+    // displayed video's CSS pixel dimensions — no DPR scaling applied here.
     const w = state.overlayCanvas.width;
     const h = state.overlayCanvas.height;
 
@@ -1248,6 +1335,13 @@
       ctx.fillText(`${state.telemetry.fps.toFixed(1)} FPS`, badgeW - 55, 32);
     }
 
+    // Helper: normalised-video (D) → canvas pixel (E)
+    // All detections stored in state use normalised-video coords.
+    // The canvas exactly covers the displayed video, so this mapping is
+    // simply (nx * canvasWidth, ny * canvasHeight) — no DPR factor needed.
+    const toCanvasX = (nx) => nx * w;
+    const toCanvasY = (ny) => ny * h;
+
     // 2. Ball Trail Trajectory
     if (state.overlaySettings.showBallTrail && state.currentDetections.ballTrail.length > 1) {
       ctx.beginPath();
@@ -1255,8 +1349,8 @@
       ctx.lineWidth = 2;
       for (let i = 0; i < state.currentDetections.ballTrail.length; i++) {
         const pt = state.currentDetections.ballTrail[i];
-        const tx = pt.cx * w;
-        const ty = pt.cy * h;
+        const tx = toCanvasX(pt.cx);
+        const ty = toCanvasY(pt.cy);
         if (i === 0) ctx.moveTo(tx, ty);
         else ctx.lineTo(tx, ty);
       }
@@ -1264,11 +1358,13 @@
     }
 
     // 3. Ball Bounding Box & Label
+    // All ball coords are normalised-video (D), converted to canvas (E) here.
     if (state.overlaySettings.showBall && state.currentDetections.ball) {
       const b = state.currentDetections.ball;
-      const bx = b.x * w;
-      const by = b.y * h;
-      const bw = b.width * w;
+      // D → E
+      const bx = toCanvasX(b.x);
+      const by = toCanvasY(b.y);
+      const bw = b.width  * w;
       const bh = b.height * h;
       const memState = state.telemetry.memoryTrackingState;
       const isPredicted = b.isPredictedByMemory ||
@@ -1313,11 +1409,11 @@
           ctx.fillText(`⚽ PREDICTED ${Math.round(b.confidence * 100)}%`, bx + 4, by - 5);
         }
 
-        // Draw search region circle
+        // Draw search region circle (normalised radius scaled to canvas)
         if (state.telemetry.memorySearchMode !== 'FULL_FRAME') {
-          const sr = state.telemetry.memorySearchRadius;
-          const scx = (state.telemetry.memoryPredictedCx ?? b.cx) * w;
-          const scy = (state.telemetry.memoryPredictedCy ?? b.cy) * h;
+          const sr  = state.telemetry.memorySearchRadius;
+          const scx = toCanvasX(state.telemetry.memoryPredictedCx ?? b.cx);
+          const scy = toCanvasY(state.telemetry.memoryPredictedCy ?? b.cy);
           const rad = sr * Math.min(w, h);
           ctx.save();
           ctx.setLineDash([3, 5]);
@@ -1341,22 +1437,22 @@
       }
     }
 
-    // 4. Tracked Players (Humans)
+    // 4. Tracked Players (Humans) — normalised-video (D) → canvas (E)
     if (state.overlaySettings.showPlayers) {
       for (const player of state.currentDetections.players) {
-        const px = player.x * w;
-        const py = player.y * h;
-        const pw = player.width * w;
+        const px = toCanvasX(player.x);
+        const py = toCanvasY(player.y);
+        const pw = player.width  * w;
         const ph = player.height * h;
 
-        ctx.strokeStyle = player.team === 'Team A' ? state.teamAColor : (player.team === 'Team B' ? state.teamBColor : '#94a3b8');
+        ctx.strokeStyle = player.team === 'Team A' ? state.teamAColor :
+          (player.team === 'Team B' ? state.teamBColor : '#94a3b8');
         ctx.lineWidth = 1.8;
         ctx.strokeRect(px, py, pw, ph);
 
         if (state.overlaySettings.showPlayerLabels) {
           ctx.fillStyle = 'rgba(10, 13, 20, 0.75)';
           ctx.fillRect(px, py - 14, 55, 14);
-
           ctx.fillStyle = '#ffffff';
           ctx.font = 'bold 9px sans-serif';
           ctx.fillText(`ID:${player.id} [${player.team.slice(0, 6)}]`, px + 2, py - 4);
@@ -1368,16 +1464,15 @@
     if (state.pinpointRipple) {
       const elapsed = (performance.now() - state.pinpointRipple.startTime) / 1000;
       if (elapsed < 1.0) {
-        const rx = state.pinpointRipple.cx * w;
-        const ry = state.pinpointRipple.cy * h;
+        const rx = toCanvasX(state.pinpointRipple.cx);
+        const ry = toCanvasY(state.pinpointRipple.cy);
         const radius = 8 + elapsed * 60;
-        const alpha = Math.max(0, 1 - elapsed);
+        const alpha  = Math.max(0, 1 - elapsed);
         ctx.beginPath();
         ctx.arc(rx, ry, radius, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(56, 189, 248, ${alpha})`;
         ctx.lineWidth = 2.5;
         ctx.stroke();
-
         ctx.beginPath();
         ctx.arc(rx, ry, radius * 0.5, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(16, 185, 129, ${alpha * 0.8})`;
@@ -1404,7 +1499,7 @@
       ctx.fillText('🎯 Click on the football in video to lock tracking (ESC to cancel)', w / 2, 30);
       ctx.textAlign = 'left';
 
-      // Mouse Reticle if hovering over video
+      // Mouse Reticle (already in canvas pixel coords from mousemove handler)
       if (state.lastMousePos) {
         const mx = state.lastMousePos.x;
         const my = state.lastMousePos.y;
@@ -1413,7 +1508,6 @@
         ctx.strokeStyle = '#38bdf8';
         ctx.lineWidth = 2;
         ctx.stroke();
-
         ctx.beginPath();
         ctx.moveTo(mx - 22, my); ctx.lineTo(mx + 22, my);
         ctx.moveTo(mx, my - 22); ctx.lineTo(mx, my + 22);
@@ -1421,6 +1515,49 @@
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
+    }
+
+    // 7. Debug Coordinate Visualisation (enable via debugCoords setting)
+    if (state.overlaySettings.debugCoords && typeof buildDebugInfo === 'function') {
+      const ball = state.currentDetections.ball;
+      const lb   = framePackage?.letterbox;
+      const vid  = state.captureManager?.videoElement;
+
+      // For debug: reconstruct the raw model box from the current normalised ball
+      // by reversing the D→C transform so we can display all three stages.
+      let rawModelBox  = null;
+      let videoNormBox = null;
+      let canvasBox    = null;
+
+      if (ball && lb && vid?.videoWidth) {
+        videoNormBox = { x: ball.x, y: ball.y, width: ball.width, height: ball.height,
+                         cx: ball.cx, cy: ball.cy };
+        canvasBox    = { x: ball.x * w, y: ball.y * h,
+                         width: ball.width * w, height: ball.height * h,
+                         cx: (ball.cx) * w, cy: (ball.cy) * h };
+        // Reconstruct approximate raw model box (D → A → B → C)
+        if (typeof videoNormToModelNorm === 'function') {
+          const hX = videoNormToModelNorm(ball.cx, ball.cy, vid.videoWidth, vid.videoHeight, lb);
+          const halfW = (ball.width  * vid.videoWidth  * lb.scale / 640) / 2;
+          const halfH = (ball.height * vid.videoHeight * lb.scale / 640) / 2;
+          rawModelBox = {
+            x:  hX.hx - halfW, y:  hX.hy - halfH,
+            width: halfW * 2,  height: halfH * 2,
+            cx: hX.hx,         cy: hX.hy
+          };
+        }
+      }
+
+      const debugInfo = buildDebugInfo({
+        video: vid,
+        canvasWidth:  w,
+        canvasHeight: h,
+        letterbox:    lb,
+        rawModelBox,
+        videoNormBox,
+        canvasBox
+      });
+      drawDebugPanel(ctx, debugInfo);
     }
   }
 
@@ -1440,38 +1577,61 @@
         </div>
       </div>
       <div class="pn-hud-body">
-        <div class="pn-hud-stats">
-          <span class="live-badge" id="pnStat">ACTIVE</span>
-          <span id="pnClock">00:00</span>
-          <span id="pnFps">-- FPS</span>
-        </div>
-        <div class="pn-hud-layers-bar" id="pnHudLayersBar">
-          <button class="pn-hud-layer-pill ${state.overlaySettings.showPlayers ? 'active' : ''}" id="pnPillPlayers" title="Toggle Human / Players Bounding Boxes">👤 Human</button>
-          <button class="pn-hud-layer-pill ${state.overlaySettings.showBall ? 'active' : ''}" id="pnPillBall" title="Toggle Football Bounding Box">⚽ Ball</button>
-          <button class="pn-hud-layer-pill ${state.overlaySettings.showPlayerLabels ? 'active' : ''}" id="pnPillLabels" title="Toggle Player ID & Team Labels">🏷️ Labels</button>
-          <button class="pn-hud-layer-pill ${state.overlaySettings.showBallTrail ? 'active' : ''}" id="pnPillTrail" title="Toggle Ball Trajectory Trail">〰️ Trail</button>
-        </div>
-        <!-- Memory Dashboard -->
-        <div class="pn-memory-panel" id="pnMemoryPanel">
-          <div class="pn-memory-header">
-            <span>🧠 Memory</span>
-            <div style="display:flex;gap:4px;align-items:center;">
-              <span class="pn-memory-state" id="pnMemState">LOST</span>
-              <button class="pn-memory-export-btn" id="pnBtnExportDiag" title="Export diagnostic JSON">↓ JSON</button>
+        <section class="pn-hud-section pn-recent-logs">
+          <div class="pn-hud-section-heading pn-recent-logs-heading">
+            <span>Live Match Table</span>
+            <span id="pnRecentLogsClock">00:00:00</span>
+            <button class="pn-hud-collapse" type="button" aria-expanded="true" aria-label="Collapse live match table">−</button>
+          </div>
+          <div class="pn-hud-section-content" id="pnRecentLogsContent">
+            <div class="pn-recent-logs-group">
+              <div class="pn-recent-logs-subheading">Past 5</div>
+              <div id="pnPastLogs" class="pn-corner-log-table"></div>
+            </div>
+            <div class="pn-recent-logs-group">
+              <div class="pn-recent-logs-subheading">Upcoming 5</div>
+              <div id="pnUpcomingLogs" class="pn-corner-log-table"></div>
             </div>
           </div>
-          <div class="pn-memory-grid">
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Confirmed age</span><span class="pn-mem-val" id="pnMemAge">—</span></div>
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Memory window</span><span class="pn-mem-val" id="pnMemSamples">0 samples</span></div>
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Search mode</span><span class="pn-mem-val" id="pnMemSearch">LOCAL</span></div>
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Camera</span><span class="pn-mem-val" id="pnMemCamera">UNKNOWN</span></div>
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Missed frames</span><span class="pn-mem-val" id="pnMemMissed">0</span></div>
-            <div class="pn-mem-row"><span class="pn-mem-lbl">Reacquisitions</span><span class="pn-mem-val" id="pnMemReacq">0</span></div>
+        </section>
+        <section class="pn-hud-section">
+          <div class="pn-hud-section-heading">
+            <span>Live Status</span>
+            <button class="pn-hud-collapse" type="button" aria-expanded="true" aria-label="Collapse live status">−</button>
           </div>
-        </div>
-        <div id="pnSuggestionsBox">
-          <span style="color:#64748b; font-size:10px;">Monitoring football action...</span>
-        </div>
+          <div class="pn-hud-section-content" id="pnHudStatusContent">
+            <div class="pn-hud-stats">
+              <span class="live-badge" id="pnStat">ACTIVE</span>
+              <span id="pnClock">00:00</span>
+              <span id="pnFps">-- FPS</span>
+            </div>
+          </div>
+        </section>
+        <section class="pn-hud-section">
+          <div class="pn-hud-section-heading">
+            <span>Display Layers</span>
+            <button class="pn-hud-collapse" type="button" aria-expanded="true" aria-label="Collapse display layers">−</button>
+          </div>
+          <div class="pn-hud-section-content" id="pnHudLayersContent">
+            <div class="pn-hud-layers-bar" id="pnHudLayersBar">
+              <button class="pn-hud-layer-pill ${state.overlaySettings.showPlayers ? 'active' : ''}" id="pnPillPlayers" title="Toggle Human / Players Bounding Boxes">👤 Human</button>
+              <button class="pn-hud-layer-pill ${state.overlaySettings.showBall ? 'active' : ''}" id="pnPillBall" title="Toggle Football Bounding Box">⚽ Ball</button>
+              <button class="pn-hud-layer-pill ${state.overlaySettings.showPlayerLabels ? 'active' : ''}" id="pnPillLabels" title="Toggle Player ID & Team Labels">🏷️ Labels</button>
+              <button class="pn-hud-layer-pill ${state.overlaySettings.showBallTrail ? 'active' : ''}" id="pnPillTrail" title="Toggle Ball Trajectory Trail">〰️ Trail</button>
+            </div>
+          </div>
+        </section>
+        <section class="pn-hud-section">
+          <div class="pn-hud-section-heading">
+            <span>Event Suggestions</span>
+            <button class="pn-hud-collapse" type="button" aria-expanded="true" aria-label="Collapse event suggestions">−</button>
+          </div>
+          <div class="pn-hud-section-content" id="pnSuggestionsContent">
+            <div id="pnSuggestionsBox">
+              <span style="color:#64748b; font-size:10px;">Monitoring football action...</span>
+            </div>
+          </div>
+        </section>
       </div>
       <div class="pn-hud-footer">
         <span id="pnModeTag">Assisted Mode</span>
@@ -1491,19 +1651,13 @@
       domain: hud.querySelector('#pnDomainBadge'),
       switchBtn: hud.querySelector('#pnBtnSwitchVideo'),
       btnTagBall: hud.querySelector('#pnBtnTagBall'),
+      recentLogsClock: hud.querySelector('#pnRecentLogsClock'),
+      pastLogs: hud.querySelector('#pnPastLogs'),
+      upcomingLogs: hud.querySelector('#pnUpcomingLogs'),
       pillPlayers: hud.querySelector('#pnPillPlayers'),
       pillBall: hud.querySelector('#pnPillBall'),
       pillLabels: hud.querySelector('#pnPillLabels'),
       pillTrail: hud.querySelector('#pnPillTrail'),
-      // Memory dashboard elements
-      memState:   hud.querySelector('#pnMemState'),
-      memAge:     hud.querySelector('#pnMemAge'),
-      memSamples: hud.querySelector('#pnMemSamples'),
-      memSearch:  hud.querySelector('#pnMemSearch'),
-      memCamera:  hud.querySelector('#pnMemCamera'),
-      memMissed:  hud.querySelector('#pnMemMissed'),
-      memReacq:   hud.querySelector('#pnMemReacq'),
-      btnExportDiag: hud.querySelector('#pnBtnExportDiag')
     };
 
     const btnTag = hud.querySelector('#pnBtnTagBall');
@@ -1517,26 +1671,6 @@
         } else {
           togglePinpointBallMode();
         }
-      };
-    }
-
-    // Memory diagnostic export button
-    const btnExport = hud.querySelector('#pnBtnExportDiag');
-    if (btnExport) {
-      btnExport.onclick = () => {
-        if (!state.memoryManager) {
-          showToastNotification('Memory manager not active.');
-          return;
-        }
-        const diag = state.memoryManager.exportDiagnostic();
-        const blob = new Blob([JSON.stringify(diag, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `pn-memory-diagnostic-${Date.now()}.json`;
-        a.click();
-        URL.revokeObjectURL(url);
-        showToastNotification('🧠 Diagnostic JSON exported');
       };
     }
 
@@ -1564,6 +1698,20 @@
     if (pillB) pillB.onclick = () => toggleLayer('showBall', pillB, 'Football overlay');
     if (pillL) pillL.onclick = () => toggleLayer('showPlayerLabels', pillL, 'Player labels');
     if (pillT) pillT.onclick = () => toggleLayer('showBallTrail', pillT, 'Ball trail');
+
+    hud.querySelectorAll('.pn-hud-collapse').forEach(button => {
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const content = button.closest('.pn-hud-section')?.querySelector('.pn-hud-section-content');
+        if (!content) return;
+        const expanded = button.getAttribute('aria-expanded') === 'true';
+        content.hidden = expanded;
+        button.setAttribute('aria-expanded', String(!expanded));
+        button.setAttribute('aria-label', `${expanded ? 'Expand' : 'Collapse'} ${button.getAttribute('aria-label').replace(/^(Collapse|Expand) /, '')}`);
+        button.textContent = expanded ? '+' : '−';
+      });
+    });
 
     makeDraggable(hud, hud.querySelector('#pnHudHeader'));
     hud.querySelector('#pnBtnMin').onclick = () => hud.classList.toggle('minimized');
@@ -1617,33 +1765,6 @@
     if (pillLabels) pillLabels.classList.toggle('active', !!state.overlaySettings.showPlayerLabels);
     if (pillTrail) pillTrail.classList.toggle('active', !!state.overlaySettings.showBallTrail);
 
-    // Update memory dashboard
-    const { memState, memAge, memSamples, memSearch, memCamera, memMissed, memReacq } = state.floatingHudElements;
-    const mts = state.telemetry.memoryTrackingState || 'LOST';
-    if (memState) {
-      memState.textContent = mts;
-      memState.className = 'pn-memory-state pn-mem-state-' + mts.toLowerCase();
-    }
-    if (memAge) {
-      const age = state.telemetry.memoryAgeSec;
-      memAge.textContent = age != null ? `${age.toFixed(2)}s ago` : '—';
-    }
-    if (memSamples) {
-      memSamples.textContent = `${state.telemetry.memoryTotalSamples} samples`;
-    }
-    if (memSearch) {
-      memSearch.textContent = state.telemetry.memorySearchMode || 'LOCAL';
-    }
-    if (memCamera) {
-      memCamera.textContent = state.telemetry.memoryCameraStatus || 'UNKNOWN';
-    }
-    if (memMissed) {
-      memMissed.textContent = state.telemetry.memoryMissedFrames ?? 0;
-    }
-    if (memReacq) {
-      memReacq.textContent = state.telemetry.memoryReacquisitionAttempts ?? 0;
-    }
-
     if (domain) domain.textContent = state.telemetry.siteDomain || 'Live';
     if (stat) {
       if (state.telemetry.isCorsProtected) {
@@ -1660,7 +1781,11 @@
     if (clock) clock.textContent = formatMatchTime ? formatMatchTime(state.telemetry.currentTime) : '00:00';
     if (fps) fps.textContent = `${state.telemetry.fps.toFixed(1)} FPS`;
     if (mode) mode.textContent = state.autoLogging ? 'Auto-Logging ON' : 'Assisted Mode';
-    if (logs && state.eventStore) logs.textContent = `${state.eventStore.getAll().length} Logged`;
+    if (logs && state.eventStore) {
+      const eventLogs = state.eventStore.getAll();
+      logs.textContent = `${eventLogs.length} Logged`;
+      renderHudRecentLogs(eventLogs);
+    }
 
     // Only query videos periodically (every 2s), NOT on every frame
     if (switchBtn && (now - lastVideoCheckTime > 2000 || force)) {
@@ -1699,6 +1824,60 @@
       box.dataset.hasSuggestions = 'false';
       box.innerHTML = '<span style="color:#64748b; font-size:10px;">Monitoring football action...</span>';
     }
+  }
+
+  function renderHudRecentLogs(events) {
+    const { recentLogsClock, pastLogs, upcomingLogs } = state.floatingHudElements || {};
+    if (!pastLogs || !upcomingLogs) return;
+
+    const liveTime = state.telemetry.currentTime || 0;
+    const { past, upcoming } = getRecentEventsAroundTime(events, liveTime, 5);
+    if (recentLogsClock) recentLogsClock.textContent = formatMatchTime(liveTime, true);
+    renderHudLogTable(pastLogs, past, 'No past logs.');
+    renderHudLogTable(upcomingLogs, upcoming, 'No upcoming logs.');
+  }
+
+  function renderHudLogTable(container, events, emptyMessage) {
+    container.replaceChildren();
+    if (events.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'pn-corner-log-empty';
+      empty.textContent = emptyMessage;
+      container.appendChild(empty);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'pn-corner-log-grid';
+    const header = table.createTHead().insertRow();
+    ['Time', 'Event', 'Name', 'PID', 'Jersey', 'Manual ID'].forEach(label => {
+      const cell = document.createElement('th');
+      cell.textContent = label;
+      header.appendChild(cell);
+    });
+
+    const body = table.createTBody();
+    events.forEach(event => {
+      const row = body.insertRow();
+      const label = event.eventLabel || event.eventType
+        .split('-')
+        .map(part => part ? part[0].toUpperCase() + part.slice(1) : '')
+        .join(' ');
+      const values = [
+        formatMatchTime(event.matchTimestamp, true),
+        label,
+        event.playerName || '',
+        event.pid || event.playerId || '',
+        event.jersey || '',
+        event.manualId || ''
+      ];
+      values.forEach(value => {
+        const cell = row.insertCell();
+        cell.textContent = value;
+      });
+    });
+
+    container.appendChild(table);
   }
 
   window.pnConfirmSugg = (id) => confirmSuggestion(id);
@@ -1773,6 +1952,7 @@
   function makeDraggable(element, handle) {
     let p1 = 0, p2 = 0, p3 = 0, p4 = 0;
     handle.onmousedown = (e) => {
+      if (e.target.closest('button, input, textarea, select, a')) return;
       e.preventDefault();
       p3 = e.clientX;
       p4 = e.clientY;

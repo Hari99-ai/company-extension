@@ -118,6 +118,19 @@ This extension is built to hook into and work with **any live video present in t
 
 ---
 
+## Add Match Logs in Bulk
+
+In the in-page AI Vision HUD or extension popup, paste one event per line into **Add Bulk Match Logs** and click **Add Logs**. For example:
+
+```text
+End at 00:10:04 by (Name: , PID: A1, Jersey: , Manual ID: )
+Shot at 00:10:15 by (Name: , PID: A1, Jersey: , Manual ID: )
+```
+
+Saved entries appear in the live match log and are stored with the event history. The HUD's live log window shows the five closest past and five closest upcoming events around the current video clock. These imported text entries are match logs; they do not train the football-detection model.
+
+---
+
 ## Local Python AI Backend (YOLOv8 PyTorch)
 
 To detect players and footballs on **PlayerNation live videos** where external CDNs have Cross-Origin (CORS) restrictions, connect the extension to the included **Local AI Backend**:

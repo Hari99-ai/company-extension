@@ -335,6 +335,64 @@ body {
   gap: 6px;
 }
 
+.bulk-log-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bulk-log-panel .panel-header {
+  margin-bottom: 0;
+}
+
+.bulk-log-label {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.bulk-log-input {
+  width: 100%;
+  min-height: 66px;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font: 10px/1.5 var(--font-mono);
+  user-select: text;
+}
+
+.bulk-log-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.bulk-log-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bulk-log-status {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.bulk-log-status.is-error {
+  color: #f87171;
+}
+
+.bulk-log-entry {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font: 9px/1.4 var(--font-mono);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Auto Log Toggle */
 .auto-toggle-wrapper {
   display: flex;
