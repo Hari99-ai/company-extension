@@ -34,6 +34,15 @@ export class PlayerTracker {
 
     // 1. Predict track positions based on velocity
     for (const track of this.tracks) {
+      // Preserve the last rendered detection before prediction. Matched boxes
+      // blend toward the new detection below, while unmatched predictions are
+      // kept only for association and never rendered as trailing boxes.
+      track._lastObserved = {
+        x: track.x,
+        y: track.y,
+        width: track.width,
+        height: track.height
+      };
       track.x += track.vx || 0;
       track.y += track.vy || 0;
       track.lostFrames++;
@@ -65,15 +74,21 @@ export class PlayerTracker {
 
       if (bestMatchIdx >= 0) {
         const matched = unmatchedDetections.splice(bestMatchIdx, 1)[0];
-        // Calculate velocity smoothing
-        track.vx = (matched.x - track.x) * 0.4;
-        track.vy = (matched.y - track.y) * 0.4;
-        track.x = matched.x;
-        track.y = matched.y;
-        track.width = matched.width;
-        track.height = matched.height;
+        // Smooth only confirmed detections. A high new-frame weight keeps the
+        // box responsive while damping detector jitter without visual trails.
+        const previous = track._lastObserved || track;
+        const alpha = 0.72;
+        const nextX = previous.x + (matched.x - previous.x) * alpha;
+        const nextY = previous.y + (matched.y - previous.y) * alpha;
+        track.vx = (nextX - previous.x) * 0.4;
+        track.vy = (nextY - previous.y) * 0.4;
+        track.x = nextX;
+        track.y = nextY;
+        track.width = previous.width + (matched.width - previous.width) * alpha;
+        track.height = previous.height + (matched.height - previous.height) * alpha;
         track.confidence = matched.confidence;
         track.lostFrames = 0;
+        delete track._lastObserved;
 
         // Sample jersey color
         if (imageData) {
@@ -106,7 +121,8 @@ export class PlayerTracker {
 
     this.tracks = updatedTracks;
 
-    // Return only active visible tracks
+    // Return only tracks confirmed by a detection in this update so old
+    // positions do not linger as trailing boxes when inference is slow.
     return this.tracks.filter(t => t.lostFrames === 0);
   }
 

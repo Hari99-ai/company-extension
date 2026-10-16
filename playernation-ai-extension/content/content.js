@@ -80,7 +80,9 @@
     overlayCanvas: null,
     overlayCtx: null,
     floatingHud: null,
-    hudVisible: true,
+    // Keep the in-page HUD out of the way; the video overlay remains visible.
+    // The extension popup can toggle the HUD back on when its controls are needed.
+    hudVisible: false,
 
     teamAColor: '#ffffff',
     teamBColor: '#dc2626',
@@ -622,11 +624,20 @@
       _cropCtx = _cropCanvas.getContext('2d', { willReadFrequently: true });
     }
 
-    const dpr = window.devicePixelRatio || 1;
-    const sx = Math.max(0, Math.round(rect.left * dpr));
-    const sy = Math.max(0, Math.round(rect.top * dpr));
-    const sw = Math.min(_tabCaptureImg.width - sx, Math.round(rect.width * dpr));
-    const sh = Math.min(_tabCaptureImg.height - sy, Math.round(rect.height * dpr));
+    // captureVisibleTab returns screenshot pixels, which do not always map to
+    // CSS pixels via devicePixelRatio (browser zoom and display scaling can
+    // make the screenshot scale differ). Derive each axis from the actual
+    // captured viewport dimensions so the detector sees the same video region
+    // that the overlay covers.
+    const viewportW = document.documentElement.clientWidth || window.innerWidth;
+    const viewportH = document.documentElement.clientHeight || window.innerHeight;
+    if (viewportW <= 0 || viewportH <= 0) return null;
+    const scaleX = _tabCaptureImg.width / viewportW;
+    const scaleY = _tabCaptureImg.height / viewportH;
+    const sx = Math.max(0, Math.round(rect.left * scaleX));
+    const sy = Math.max(0, Math.round(rect.top * scaleY));
+    const sw = Math.min(_tabCaptureImg.width - sx, Math.round(rect.width * scaleX));
+    const sh = Math.min(_tabCaptureImg.height - sy, Math.round(rect.height * scaleY));
 
     if (sw <= 0 || sh <= 0) return null;
 
@@ -648,7 +659,10 @@
     _cachedCapturedResult = {
       dataUrl,
       imageData,
-      letterbox: { scale, padX, padY, scaledW, scaledH }
+      // Keep the crop's source dimensions: CORS captures are in displayed
+      // element coordinates, which can have a different aspect ratio from
+      // video.videoWidth/video.videoHeight (CSS sizing and object-fit).
+      letterbox: { scale, padX, padY, scaledW, scaledH, sourceWidth: sw, sourceHeight: sh }
     };
     return _cachedCapturedResult;
   }
@@ -678,8 +692,8 @@
     if (!box || !letterbox || !letterbox.scale) return box;
 
     const video = state.captureManager?.videoElement;
-    const videoWidth  = video?.videoWidth  || letterbox.scaledW / letterbox.scale || 1920;
-    const videoHeight = video?.videoHeight || letterbox.scaledH / letterbox.scale || 1080;
+    const videoWidth  = letterbox.sourceWidth || video?.videoWidth  || letterbox.scaledW / letterbox.scale || 1920;
+    const videoHeight = letterbox.sourceHeight || video?.videoHeight || letterbox.scaledH / letterbox.scale || 1080;
 
     // Use the canonical coord-transform function if it has been loaded.
     if (typeof modelBoxToVideoNorm === 'function') {
@@ -1459,7 +1473,6 @@
         const py = toCanvasY(player.y);
         const pw = player.width  * w;
         const ph = player.height * h;
-
         ctx.strokeStyle = player.team === 'Team A' ? state.teamAColor :
           (player.team === 'Team B' ? state.teamBColor : '#94a3b8');
         ctx.lineWidth = 1.8;
@@ -1656,6 +1669,7 @@
     `;
 
     document.body.appendChild(hud);
+    hud.style.display = state.hudVisible ? 'flex' : 'none';
     state.floatingHud = hud;
     state.floatingHudElements = {
       stat: hud.querySelector('#pnStat'),
