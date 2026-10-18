@@ -13,6 +13,7 @@ const elements = {
   headerStatusText: document.getElementById('headerStatusText'),
   sourceDomainPill: document.getElementById('sourceDomainPill'),
   autoLogToggle: document.getElementById('autoLogToggle'),
+  showHudLauncherToggle: document.getElementById('showHudLauncherToggle'),
 
   btnStart: document.getElementById('btnStart'),
   btnPause: document.getElementById('btnPause'),
@@ -132,6 +133,9 @@ async function loadSavedSettings() {
         if (data.settings.autoLoggingEnabled !== undefined && elements.autoLogToggle) {
           elements.autoLogToggle.checked = !!data.settings.autoLoggingEnabled;
         }
+        if (data.settings.showHudLauncher !== undefined && elements.showHudLauncherToggle) {
+          elements.showHudLauncherToggle.checked = !!data.settings.showHudLauncher;
+        }
 
         // Layer Toggles
         if (data.settings.showPlayers !== undefined && elements.toggleShowPlayers) {
@@ -201,6 +205,14 @@ function setupEventListeners() {
       if (res && res.success) {
         showToast(`In-page HUD ${res.visible ? 'shown' : 'hidden'}`);
       }
+    });
+  }
+
+  if (elements.showHudLauncherToggle) {
+    elements.showHudLauncherToggle.addEventListener('change', () => {
+      const show = elements.showHudLauncherToggle.checked;
+      updateOverlaySettings({ showHudLauncher: show });
+      showToast(`AI Panel button: ${show ? 'ON' : 'OFF'}`);
     });
   }
 

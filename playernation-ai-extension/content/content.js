@@ -80,7 +80,7 @@
     overlayCanvas: null,
     overlayCtx: null,
     floatingHud: null,
-    floatingHudToggle: null,
+    floatingHudLauncher: null,
     // Keep the in-page HUD out of the way; the video overlay remains visible.
     // The extension popup can toggle the HUD back on when its controls are needed.
     hudVisible: false,
@@ -92,6 +92,7 @@
     overlaySettings: {
       showPlayers: true,
       showBall: true,
+      showHudLauncher: true,
       showPlayerLabels: true,
       showBallTrail: true,
       showTelemetryBadge: true,
@@ -200,6 +201,9 @@
 
       if (data.settings.showPlayers !== undefined) state.overlaySettings.showPlayers = !!data.settings.showPlayers;
       if (data.settings.showBall !== undefined) state.overlaySettings.showBall = !!data.settings.showBall;
+      if (data.settings.showHudLauncher !== undefined) {
+        state.overlaySettings.showHudLauncher = !!data.settings.showHudLauncher;
+      }
       if (data.settings.showPlayerLabels !== undefined) state.overlaySettings.showPlayerLabels = !!data.settings.showPlayerLabels;
       if (data.settings.showBallTrail !== undefined) state.overlaySettings.showBallTrail = !!data.settings.showBallTrail;
       if (data.settings.showTelemetryBadge !== undefined) state.overlaySettings.showTelemetryBadge = !!data.settings.showTelemetryBadge;
@@ -272,6 +276,9 @@
       case 'CMD_UPDATE_OVERLAY_SETTINGS':
         if (payload) {
           Object.assign(state.overlaySettings, payload);
+          if (payload.showHudLauncher !== undefined) {
+            updateHudLauncherVisibility();
+          }
           if (state.detector) {
             if (payload.playerConfidence !== undefined) state.detector.playerConfidence = payload.playerConfidence;
             if (payload.ballConfidence !== undefined) state.detector.ballConfidence = payload.ballConfidence;
@@ -1673,16 +1680,19 @@
     document.body.appendChild(hud);
     hud.style.display = state.hudVisible ? 'flex' : 'none';
     state.floatingHud = hud;
+    const hudLauncher = document.createElement('div');
+    hudLauncher.id = 'pn-ai-hud-launcher';
     const hudToggle = document.createElement('button');
     hudToggle.id = 'pn-ai-hud-toggle';
     hudToggle.type = 'button';
     hudToggle.textContent = '⚽ AI Panel';
     hudToggle.setAttribute('aria-label', 'Show AI Vision panel');
     hudToggle.setAttribute('aria-controls', hud.id);
-    hudToggle.style.display = state.hudVisible ? 'none' : 'inline-flex';
     hudToggle.addEventListener('click', () => setHudVisibility(true));
-    document.body.appendChild(hudToggle);
-    state.floatingHudToggle = hudToggle;
+    hudLauncher.append(hudToggle);
+    document.body.appendChild(hudLauncher);
+    state.floatingHudLauncher = hudLauncher;
+    updateHudLauncherVisibility();
     state.floatingHudElements = {
       stat: hud.querySelector('#pnStat'),
       clock: hud.querySelector('#pnClock'),
@@ -1816,10 +1826,13 @@
   function setHudVisibility(visible) {
     state.hudVisible = visible;
     if (state.floatingHud) state.floatingHud.style.display = visible ? 'flex' : 'none';
-    if (state.floatingHudToggle) {
-      state.floatingHudToggle.style.display = visible ? 'none' : 'inline-flex';
-      state.floatingHudToggle.setAttribute('aria-label', visible ? 'Hide AI Vision panel' : 'Show AI Vision panel');
-    }
+    updateHudLauncherVisibility();
+  }
+
+  function updateHudLauncherVisibility() {
+    if (!state.floatingHudLauncher) return;
+    const showLauncher = state.overlaySettings.showHudLauncher && !state.hudVisible;
+    state.floatingHudLauncher.style.display = showLauncher ? 'inline-flex' : 'none';
   }
 
   let lastHudUpdateTime = 0;

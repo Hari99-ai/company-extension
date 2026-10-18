@@ -33,6 +33,7 @@ chrome.runtime.onInstalled.addListener(() => {
       minimumTrainingSamples: 10,
       showPlayers: true,
       showBall: true,
+      showHudLauncher: true,
       showPlayerLabels: true,
       showBallTrail: true,
       showTelemetryBadge: true,

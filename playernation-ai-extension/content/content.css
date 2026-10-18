@@ -38,10 +38,17 @@
   user-select: none;
 }
 
-#pn-ai-hud-toggle {
+#pn-ai-hud-launcher {
   position: fixed;
   right: 24px;
   bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 100000;
+}
+
+#pn-ai-hud-toggle {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -53,7 +60,6 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   font: 600 12px/1.2 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
   cursor: pointer;
-  z-index: 100000;
 }
 
 #pn-ai-hud-toggle:hover {
