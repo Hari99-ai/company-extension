@@ -1,7 +1,8 @@
 import { parseMatchTime } from '../utils/timestamps.js';
 
-const LINE_PATTERN = /^(.+?)\s+at\s+(\d{2}:\d{2}:\d{2})\s+by\s+\((.*)\)\s*$/i;
+const LINE_PATTERN = /^\s*(?:\d+\.\s*)?(.+?)\s+at\s+(\d{2}:\d{2}:\d{2})\s+by\s+(.+?)\s*$/i;
 const FIELDS_PATTERN = /^\s*Name:\s*([^,]*),\s*PID:\s*([^,]*),\s*Jersey:\s*([^,]*),\s*Manual ID:\s*([^,)]*)\s*$/i;
+const PIPE_FIELDS_PATTERN = /^\s*([^|]*)\|\s*([^|]*)\|\s*([^|]*)\|\s*([^|]*)\s*$/;
 
 export function parseBulkEventLogs(text) {
   const events = [];
@@ -13,9 +14,15 @@ export function parseBulkEventLogs(text) {
     if (!line) return;
 
     const match = LINE_PATTERN.exec(line);
-    const fields = match && FIELDS_PATTERN.exec(match[3]);
+    const details = match && match[3].startsWith('(') && match[3].endsWith(')')
+      ? match[3].slice(1, -1)
+      : match?.[3];
+    const fields = match && (
+      FIELDS_PATTERN.exec(details) ||
+      PIPE_FIELDS_PATTERN.exec(details)
+    );
     if (!match || !fields) {
-      errors.push({ line: index + 1, message: 'Expected: Event at HH:MM:SS by (Name: ..., PID: ..., Jersey: ..., Manual ID: ...).' });
+      errors.push({ line: index + 1, message: 'Expected: Event at HH:MM:SS by (Name: ..., PID: ..., Jersey: ..., Manual ID: ...) or Event at HH:MM:SS by Name | PID | Jersey | Manual ID.' });
       return;
     }
 

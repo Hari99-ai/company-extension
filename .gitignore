@@ -24,3 +24,7 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+playernation-ai-extension/training_data/Football-Image-Dataset/
+playernation-ai-extension/training_data/Football-Ball-Detection/
+playernation-ai-extension/models/training_runs/
+playernation-ai-extension/runs/

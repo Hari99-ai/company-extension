@@ -30,7 +30,7 @@ chrome.runtime.onInstalled.addListener(() => {
       teamAColor: '#ffffff',
       teamBColor: '#ff2222',
       modelVariant: 'yolov8n',
-      minimumTrainingSamples: 20,
+      minimumTrainingSamples: 10,
       showPlayers: true,
       showBall: true,
       showPlayerLabels: true,

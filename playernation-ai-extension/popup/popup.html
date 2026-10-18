@@ -198,7 +198,7 @@
         <button class="btn btn-sm btn-outline" id="btnExportTrainingData">Export Labeled Frames (0)</button>
         <label class="pinpoint-hint" for="minimumTrainingSamplesInput">
           Auto-train after verified labels
-          <input class="form-input" id="minimumTrainingSamplesInput" type="number" min="10" max="10000" step="1" value="20">
+          <input class="form-input" id="minimumTrainingSamplesInput" type="number" min="10" max="10000" step="1" value="10">
           This threshold applies to each training run.
         </label>
         <div class="pinpoint-hint">Local trainer status: <strong id="footballTrainingStatus">waiting for local backend</strong></div>
@@ -278,9 +278,9 @@
         <h2>Add Bulk Match Logs</h2>
         <span class="helper-text">One event per line</span>
       </div>
-      <label class="bulk-log-label" for="bulkLogInput">Paste events in this format</label>
+      <label class="bulk-log-label" for="bulkLogInput">Paste events in either format (Name | PID | Jersey | Manual ID)</label>
       <textarea id="bulkLogInput" class="bulk-log-input" rows="3" spellcheck="false" placeholder="End at 00:10:04 by (Name: , PID: A1, Jersey: , Manual ID: )
-Shot at 00:10:15 by (Name: , PID: A1, Jersey: , Manual ID: )"></textarea>
+1. Kickoff at 00:00:06 by | | | A1"></textarea>
       <div class="bulk-log-actions">
         <span id="bulkLogStatus" class="bulk-log-status" role="status" aria-live="polite"></span>
         <button id="btnAddBulkLogs" class="btn btn-sm btn-primary">Add Logs</button>

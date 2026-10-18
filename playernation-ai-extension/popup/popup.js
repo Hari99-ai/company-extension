@@ -162,7 +162,13 @@ async function loadSavedSettings() {
           if (elements.ballConfVal) elements.ballConfVal.textContent = `${bVal}%`;
         }
         if (elements.minimumTrainingSamplesInput) {
-          elements.minimumTrainingSamplesInput.value = data.settings.minimumTrainingSamples || 20;
+          const savedMinimum = data.settings.minimumTrainingSamples;
+          // Migrate the previous default once so existing installs adopt 10 too.
+          if (savedMinimum === 20) {
+            data.settings.minimumTrainingSamples = 10;
+            chrome.storage.local.set({ settings: data.settings });
+          }
+          elements.minimumTrainingSamplesInput.value = savedMinimum === 20 ? 10 : (savedMinimum || 10);
         }
       }
       resolve();
@@ -352,13 +358,13 @@ function setupEventListeners() {
 
 function getMinimumTrainingSamples() {
   const value = Number(elements.minimumTrainingSamplesInput?.value);
-  return Number.isInteger(value) && value >= 10 && value <= 10000 ? value : 20;
+  return Number.isInteger(value) && value >= 10 && value <= 10000 ? value : 10;
 }
 
 function updateTrainingMinimum() {
   const value = Number(elements.minimumTrainingSamplesInput.value);
   if (!Number.isInteger(value) || value < 10 || value > 10000) {
-    elements.minimumTrainingSamplesInput.value = '20';
+    elements.minimumTrainingSamplesInput.value = '10';
     showToast('Training threshold must be between 10 and 10000 labeled frames.');
     return;
   }

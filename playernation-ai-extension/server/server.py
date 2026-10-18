@@ -26,11 +26,11 @@ from markupsafe import escape
 from ultralytics import YOLO
 
 try:
-    configured_minimum_samples = int(os.environ.get("PLAYER_NATION_MIN_TRAINING_SAMPLES", "20"))
+    configured_minimum_samples = int(os.environ.get("PLAYER_NATION_MIN_TRAINING_SAMPLES", "10"))
     if not 10 <= configured_minimum_samples <= 10000:
-        configured_minimum_samples = 20
+        configured_minimum_samples = 10
 except ValueError:
-    configured_minimum_samples = 20
+    configured_minimum_samples = 10
 
 # Initialize Flask App
 app = Flask(__name__)
@@ -57,6 +57,7 @@ SERVER_STATE = {
 BASE_DIR = Path(__file__).resolve().parent.parent
 MODEL_PATH = BASE_DIR / "models" / "yolov8n.pt"
 FOOTBALL_MODEL_PATH = BASE_DIR / "models" / "football_finetuned.pt"
+FOOTBALL_DETECTOR_PATH = BASE_DIR / "models" / "football_detector.pt"
 TRAINING_DATA_DIR = BASE_DIR / "training_data" / "football"
 TRAINING_IMAGES_DIR = TRAINING_DATA_DIR / "images"
 TRAINING_LABELS_DIR = TRAINING_DATA_DIR / "labels"
@@ -70,11 +71,12 @@ if not MODEL_PATH.exists():
 print(f"[PlayerNation AI Server] Loading model from: {MODEL_PATH}")
 model = YOLO(str(MODEL_PATH))
 football_model = YOLO(str(FOOTBALL_MODEL_PATH)) if FOOTBALL_MODEL_PATH.exists() else None
+football_detector = YOLO(str(FOOTBALL_DETECTOR_PATH)) if FOOTBALL_DETECTOR_PATH.exists() else None
 MODEL_LOCK = RLock()
 TRAINING_LOCK = threading.Lock()
 TRAINING_DATA_LOCK = RLock()
-SERVER_STATE["football_model"] = football_model is not None
-SERVER_STATE["model_name"] = (
+SERVER_STATE["football_model"] = football_model is not None or football_detector is not None
+SERVER_STATE["model_name"] = "football_detector.pt" if football_detector else (
     "yolov8n.pt + football_finetuned.pt" if football_model else "yolov8n.pt"
 )
 TRAINING_LABELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -450,21 +452,27 @@ def detect():
     # Run YOLOv8 PyTorch inference
     with MODEL_LOCK:
         active_football_model = football_model
-        results = model.predict(
-            img,
-            conf=min_conf,
-            iou=iou_thresh,
-            verbose=False,
-            device=SERVER_STATE['device'],
-            classes=[0, 32]
-        )
-        balls = collect_ball_predictions(results, w_img, h_img, min(0.03, ball_conf))
+        active_football_detector = football_detector
+        if active_football_detector:
+            results = active_football_detector.predict(
+                img, conf=min_conf, iou=iou_thresh, verbose=False,
+                device=SERVER_STATE['device'], classes=[0, 1, 2], imgsz=960
+            )
+            football_results = []
+            balls = collect_ball_predictions(results, w_img, h_img, ball_conf, class_ids=(0,))
+        else:
+            results = model.predict(
+                img,
+                conf=min_conf,
+                iou=iou_thresh,
+                verbose=False,
+                device=SERVER_STATE['device'],
+                classes=[0, 32]
+            )
+            balls = collect_ball_predictions(results, w_img, h_img, min(0.03, ball_conf))
 
-        best_full_frame_confidence = max(
-            (ball["confidence"] for ball in balls),
-            default=0
-        )
-        if best_full_frame_confidence < 0.30:
+        best_full_frame_confidence = max((ball["confidence"] for ball in balls), default=0)
+        if not active_football_detector and best_full_frame_confidence < 0.30:
             zoom_results = []
             offset_x = 0
             offset_y = 0
@@ -504,7 +512,8 @@ def detect():
                 )
             )
 
-        football_results = active_football_model.predict(
+        if not active_football_detector:
+            football_results = active_football_model.predict(
             img,
             conf=ball_conf,
             iou=iou_thresh,
@@ -512,7 +521,7 @@ def detect():
             device=SERVER_STATE['device'],
             classes=[0],
             imgsz=640
-        ) if active_football_model else []
+            ) if active_football_model else []
 
     t1 = time.perf_counter()
     latency_ms = round((t1 - t0) * 1000, 2)
@@ -523,8 +532,27 @@ def detect():
     players: List[Dict[str, Any]] = []
     all_detections: List[Dict[str, Any]] = []
 
+    # The custom detector uses class order: ball, player, referee.
+    if active_football_detector and len(results) > 0 and results[0].boxes is not None:
+        role_names = {1: "player", 2: "referee"}
+        for box in results[0].boxes:
+            cls_id = int(box.cls[0].item())
+            conf = float(box.conf[0].item())
+            if cls_id not in role_names or conf < player_conf:
+                continue
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            det_obj = {
+                "x": max(0.0, x1 / w_img), "y": max(0.0, y1 / h_img),
+                "width": min(1.0, (x2 - x1) / w_img),
+                "height": min(1.0, (y2 - y1) / h_img),
+                "confidence": round(conf, 3), "classId": 0,
+                "className": role_names[cls_id], "role": role_names[cls_id]
+            }
+            players.append(det_obj)
+            all_detections.append(det_obj)
+
     # COCO Class mapping: 0 = person (player), 32 = sports ball (football)
-    if len(results) > 0 and results[0].boxes is not None:
+    if not active_football_detector and len(results) > 0 and results[0].boxes is not None:
         boxes = results[0].boxes
         for box in boxes:
             cls_id = int(box.cls[0].item())

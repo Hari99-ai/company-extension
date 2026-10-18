@@ -101,7 +101,7 @@
     lastFramePackage: null,
     lastTrainingImageData: null,
     lastTrainingReminderMinute: 0,
-    minimumTrainingSamples: 20,
+    minimumTrainingSamples: 10,
     trainingSyncInProgress: false,
     trainingStorageQueue: Promise.resolve(),
     isPinpointBallMode: false,

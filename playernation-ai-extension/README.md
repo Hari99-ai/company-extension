@@ -1,5 +1,9 @@
 # PlayerNation AI Football Event Logger Chrome Extension
 
+## Train a football-specific detector
+
+The first custom detector training workflow is documented in [`training/README.md`](training/README.md). It fine-tunes the bundled YOLOv8n checkpoint on labeled football images for ball, player, and referee detection, then saves weights the local backend can load. Goalkeepers are grouped with players for this first version. The extension's built-in click labeler currently collects ball labels only.
+
 An AI-powered Chrome Extension built with **Manifest V3** designed to automate and simplify football match event logging on [PlayerNation](https://playernation.app/).
 
 ---
@@ -125,7 +129,11 @@ In the in-page AI Vision HUD or extension popup, paste one event per line into *
 ```text
 End at 00:10:04 by (Name: , PID: A1, Jersey: , Manual ID: )
 Shot at 00:10:15 by (Name: , PID: A1, Jersey: , Manual ID: )
+1. Kickoff at 00:00:06 by | | | A1
+2. Pass at 00:00:11 by Alex | A1 | 9 | M-12
 ```
+
+Numbered lines and pipe-delimited player details are also supported; the four pipe-separated fields are Name, PID, Jersey, and Manual ID.
 
 Saved entries appear in the live match log and are stored with the event history. The HUD's live log window shows the five closest past and five closest upcoming events around the current video clock. These imported text entries are match logs; they do not train the football-detection model.
 
@@ -168,7 +176,7 @@ While detection is running, the extension enters football pinpoint mode once per
 
 Use **Export Labeled Frames** in the popup to download the locally stored examples as JSON. Frames remain in extension storage and are only synced to the local Python backend at `127.0.0.1` when it is running; they are not sent to a remote service. The exported bundle uses the `playernation-football-training-v1` format, with JPEG frame data and normalized football box coordinates.
 
-When the local Python backend is running, verified examples sync to `http://127.0.0.1:8000` and automatically fine-tune a football-only YOLO model after the configured number of new labels (default: 20). Change **Auto-train after verified labels** in the popup to adjust the threshold (10–10000). The original COCO model continues to detect players; the trained football model is used alongside it for ball detection. The in-browser ONNX fallback remains unchanged.
+When the local Python backend is running, verified examples sync to `http://127.0.0.1:8000` and automatically fine-tune a football-only YOLO model after the configured number of new labels (default: 10). Change **Auto-train after verified labels** in the popup to adjust the threshold (10–10000). The original COCO model continues to detect players; the trained football model is used alongside it for ball detection. The in-browser ONNX fallback remains unchanged.
 
 Training uses local CPU or CUDA resources and may take time. The trained weights are saved to `models/football_finetuned.pt`; uploaded frames and labels are stored under `training_data/football/`. The backend dashboard reports training status and errors. If the backend is offline when a label is created, it remains in extension storage and syncs when the backend reconnects.
 
