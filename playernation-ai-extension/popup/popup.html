@@ -192,6 +192,16 @@
           </div>
           <span class="pinpoint-status-tag" id="tagManualBallStatus">AUTO</span>
         </div>
+        <div class="layer-toggle-card pinpoint-reminder-toggle">
+          <div class="layer-toggle-info">
+            <label class="layer-title" for="toggleFootballTrainingReminders">Every-minute pinpoint</label>
+            <span class="layer-sub" id="footballTrainingRemindersHint">Prompt to tag the football every match minute</span>
+          </div>
+          <div class="switch-wrapper">
+            <input type="checkbox" id="toggleFootballTrainingReminders" class="switch-input" role="switch" aria-describedby="footballTrainingRemindersHint" checked>
+            <label for="toggleFootballTrainingReminders" class="switch-slider"></label>
+          </div>
+        </div>
         <div class="pinpoint-actions">
           <button class="btn-pinpoint" id="btnPinpointBall" title="Click to pinpoint football on video (Shortcut: 'B')">
             <span>🎯</span> Pinpoint on Video
@@ -208,7 +218,7 @@
         </label>
         <div class="pinpoint-hint">Local trainer status: <strong id="footballTrainingStatus">waiting for local backend</strong></div>
         <div class="pinpoint-hint">💡 Hotkey: Press <kbd>B</kbd> or <kbd>Shift</kbd> + click video to tag ball instantly</div>
-        <div class="pinpoint-hint">During detection, a reminder appears every match minute. Confirmed labels are saved locally and synced to the local Python backend for training.</div>
+        <div class="pinpoint-hint">When Every-minute pinpoint is on, a reminder appears every match minute during detection. You can also pinpoint manually at any time. Confirmed labels are saved locally and synced to the local Python backend for training.</div>
       </div>
     </section>
 

@@ -172,7 +172,7 @@ Once started:
 
 ## Football Tracking Training Samples
 
-While detection is running, the extension enters football pinpoint mode once per match minute. Click the football in the video to correct the tracker and save that captured frame with a football bounding-box label. You can also use the existing **Pinpoint on Video** control at any time; each manual pinpoint is saved as a labeled example.
+While detection is running, the extension enters football pinpoint mode once per match minute when **Every-minute pinpoint** is on in **Manual Football Tag & Lock**. Switch it off to stop the recurring prompts and cancel an active reminder. This preference is saved; switching it back on resumes prompts at the next match minute. Click the football in the video to correct the tracker and save that captured frame with a football bounding-box label. You can also use **Pinpoint on Video**, **B**, or **Shift + click** at any time; each manual pinpoint is saved as a labeled example.
 
 Use **Export Labeled Frames** in the popup to download the locally stored examples as JSON. Frames remain in extension storage and are only synced to the local Python backend at `127.0.0.1` when it is running; they are not sent to a remote service. The exported bundle uses the `playernation-football-training-v1` format, with JPEG frame data and normalized football box coordinates.
 

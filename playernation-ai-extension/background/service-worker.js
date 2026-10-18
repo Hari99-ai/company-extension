@@ -31,6 +31,7 @@ chrome.runtime.onInstalled.addListener(() => {
       teamBColor: '#ff2222',
       modelVariant: 'yolov8n',
       minimumTrainingSamples: 10,
+      footballTrainingRemindersEnabled: true,
       showPlayers: true,
       showBall: true,
       showHudLauncher: true,

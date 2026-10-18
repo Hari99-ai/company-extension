@@ -76,6 +76,7 @@ const elements = {
   ballConfVal: document.getElementById('ballConfVal'),
 
   btnPinpointBall: document.getElementById('btnPinpointBall'),
+  toggleFootballTrainingReminders: document.getElementById('toggleFootballTrainingReminders'),
   btnClearBallLock: document.getElementById('btnClearBallLock'),
   btnExportTrainingData: document.getElementById('btnExportTrainingData'),
   minimumTrainingSamplesInput: document.getElementById('minimumTrainingSamplesInput'),
@@ -165,6 +166,9 @@ async function loadSavedSettings() {
           if (elements.sliderBallConf) elements.sliderBallConf.value = bVal;
           if (elements.ballConfVal) elements.ballConfVal.textContent = `${bVal}%`;
         }
+        if (elements.toggleFootballTrainingReminders) {
+          elements.toggleFootballTrainingReminders.checked = data.settings.footballTrainingRemindersEnabled !== false;
+        }
         if (elements.minimumTrainingSamplesInput) {
           const savedMinimum = data.settings.minimumTrainingSamples;
           // Migrate the previous default once so existing installs adopt 10 too.
@@ -194,6 +198,11 @@ function updateOverlaySettings(partialSettings = {}) {
 }
 
 function setupEventListeners() {
+  elements.toggleFootballTrainingReminders?.addEventListener('change', () => {
+    const enabled = elements.toggleFootballTrainingReminders.checked;
+    updateOverlaySettings({ footballTrainingRemindersEnabled: enabled });
+    showToast(`Every-minute pinpoint: ${enabled ? 'ON' : 'OFF'}`);
+  });
   if (elements.btnStart) elements.btnStart.addEventListener('click', handleStart);
   if (elements.btnPause) elements.btnPause.addEventListener('click', handlePause);
   if (elements.btnResume) elements.btnResume.addEventListener('click', handleResume);
@@ -425,6 +434,7 @@ async function handleStart() {
   elements.btnStart.textContent = 'Connecting...';
 
   const overlaySettings = {
+    footballTrainingRemindersEnabled: elements.toggleFootballTrainingReminders?.checked ?? true,
     showPlayers: elements.toggleShowPlayers ? elements.toggleShowPlayers.checked : true,
     showBall: elements.toggleShowBall ? elements.toggleShowBall.checked : true,
     showPlayerLabels: elements.toggleShowPlayerLabels ? elements.toggleShowPlayerLabels.checked : true,
@@ -570,6 +580,9 @@ function startStatusPolling() {
 
 function updateTelemetry(telemetry, overlaySettings) {
   if (overlaySettings) {
+    if (elements.toggleFootballTrainingReminders && !elements.toggleFootballTrainingReminders.matches(':focus')) {
+      elements.toggleFootballTrainingReminders.checked = overlaySettings.footballTrainingRemindersEnabled !== false;
+    }
     if (overlaySettings.showPlayers !== undefined && elements.toggleShowPlayers && !elements.toggleShowPlayers.matches(':focus')) {
       elements.toggleShowPlayers.checked = !!overlaySettings.showPlayers;
     }

@@ -13,6 +13,13 @@ test('football training reminders occur once when match time crosses each minute
   assert.equal(getFootballTrainingReminderMinute(180, 1), 3);
 });
 
+test('football training reminders can be switched off and resumed at the next minute', () => {
+  assert.equal(getFootballTrainingReminderMinute(60, 0, false), null);
+  assert.equal(getFootballTrainingReminderMinute(180, 1, false), null);
+  assert.equal(getFootballTrainingReminderMinute(185, 3, true), null);
+  assert.equal(getFootballTrainingReminderMinute(240, 3, true), 4);
+});
+
 test('football training annotations map video coordinates through letterboxing', () => {
   const annotation = createFootballTrainingAnnotation(0.5, 0.5, {
     padX: 0,

@@ -1,4 +1,5 @@
-export function getFootballTrainingReminderMinute(matchTimestamp, lastReminderMinute) {
+export function getFootballTrainingReminderMinute(matchTimestamp, lastReminderMinute, enabled = true) {
+  if (!enabled) return null;
   if (!Number.isFinite(matchTimestamp) || matchTimestamp < 60) return null;
 
   const currentMinute = Math.floor(matchTimestamp / 60);

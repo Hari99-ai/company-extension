@@ -90,6 +90,7 @@
     autoLogging: false,
 
     overlaySettings: {
+      footballTrainingRemindersEnabled: true,
       showPlayers: true,
       showBall: true,
       showHudLauncher: true,
@@ -107,6 +108,7 @@
     trainingSyncInProgress: false,
     trainingStorageQueue: Promise.resolve(),
     isPinpointBallMode: false,
+    isReminderPinpointMode: false,
     lastMousePos: null,
     pinpointRipple: null,
 
@@ -200,6 +202,7 @@
       if (state.pnAdapter) state.pnAdapter.setAutoLogging(state.autoLogging);
 
       if (data.settings.showPlayers !== undefined) state.overlaySettings.showPlayers = !!data.settings.showPlayers;
+      state.overlaySettings.footballTrainingRemindersEnabled = data.settings.footballTrainingRemindersEnabled !== false;
       if (data.settings.showBall !== undefined) state.overlaySettings.showBall = !!data.settings.showBall;
       if (data.settings.showHudLauncher !== undefined) {
         state.overlaySettings.showHudLauncher = !!data.settings.showHudLauncher;
@@ -276,6 +279,9 @@
       case 'CMD_UPDATE_OVERLAY_SETTINGS':
         if (payload) {
           Object.assign(state.overlaySettings, payload);
+          if (payload.footballTrainingRemindersEnabled === false && state.isReminderPinpointMode) {
+            disablePinpointBallMode();
+          }
           if (payload.showHudLauncher !== undefined) {
             updateHudLauncherVisibility();
           }
@@ -990,11 +996,16 @@
 
     const reminderMinute = getFootballTrainingReminderMinute?.(
       matchTime,
-      state.lastTrainingReminderMinute
+      state.lastTrainingReminderMinute,
+      state.overlaySettings.footballTrainingRemindersEnabled
     );
+    // Advance while off so re-enabling waits for the next match minute.
+    if (!state.overlaySettings.footballTrainingRemindersEnabled && Number.isFinite(matchTime)) {
+      state.lastTrainingReminderMinute = Math.max(state.lastTrainingReminderMinute, Math.floor(matchTime / 60));
+    }
     if (reminderMinute !== null && reminderMinute !== undefined) {
       state.lastTrainingReminderMinute = reminderMinute;
-      enablePinpointBallMode();
+      enablePinpointBallMode(true);
       showToastNotification(
         `⚽ ${formatMatchTime ? formatMatchTime(matchTime) : `${reminderMinute}:00`}: ` +
         'Click the football to confirm its position and save a training frame.'
@@ -1132,7 +1143,8 @@
     });
   }
 
-  function enablePinpointBallMode() {
+  function enablePinpointBallMode(fromReminder = false) {
+    state.isReminderPinpointMode = fromReminder;
     state.isPinpointBallMode = true;
     state.telemetry.isPinpointBallMode = true;
     if (state.overlayCanvas) {
@@ -1145,6 +1157,7 @@
   }
 
   function disablePinpointBallMode() {
+    state.isReminderPinpointMode = false;
     state.isPinpointBallMode = false;
     state.telemetry.isPinpointBallMode = false;
     state.lastMousePos = null;
