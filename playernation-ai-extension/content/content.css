@@ -38,6 +38,33 @@
   user-select: none;
 }
 
+#pn-ai-hud-toggle {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  border-radius: 999px;
+  background: rgba(6, 78, 59, 0.94);
+  color: #ecfdf5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  font: 600 12px/1.2 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  cursor: pointer;
+  z-index: 100000;
+}
+
+#pn-ai-hud-toggle:hover {
+  background: rgba(5, 150, 105, 0.96);
+}
+
+#pn-ai-hud-toggle:focus-visible {
+  outline: 2px solid #6ee7b7;
+  outline-offset: 3px;
+}
+
 #pn-ai-floating-hud.pn-hud-size-fixed {
   resize: none;
 }
@@ -102,6 +129,12 @@
 .pn-hud-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #f1f5f9;
+}
+
+.pn-hud-hide-btn {
+  padding: 3px 7px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  font-size: 10px;
 }
 
 .pn-hud-section {

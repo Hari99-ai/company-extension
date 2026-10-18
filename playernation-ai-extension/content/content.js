@@ -80,6 +80,7 @@
     overlayCanvas: null,
     overlayCtx: null,
     floatingHud: null,
+    floatingHudToggle: null,
     // Keep the in-page HUD out of the way; the video overlay remains visible.
     // The extension popup can toggle the HUD back on when its controls are needed.
     hudVisible: false,
@@ -1602,7 +1603,8 @@
           <button class="pn-hud-btn" id="pnBtnTagBall" style="font-size:9px; background:rgba(34,197,94,0.18); border:1px solid rgba(34,197,94,0.4); color:#4ade80; padding:2px 7px; border-radius:4px; font-weight:600; cursor:pointer;" title="Manually pinpoint/lock football (Hotkeys: 'B' or Shift+Click video)">🎯 Pinpoint</button>
           <button class="pn-hud-btn" id="pnBtnLockSize" title="Lock panel size" aria-label="Lock panel size">↔</button>
           <button class="pn-hud-btn" id="pnBtnMin" title="Minimize">_</button>
-          <button class="pn-hud-btn" id="pnBtnClose" title="Close">&times;</button>
+          <button class="pn-hud-btn pn-hud-hide-btn" id="pnBtnHide" title="Hide panel">Hide</button>
+          <button class="pn-hud-btn" id="pnBtnClose" title="Close panel">&times;</button>
         </div>
       </div>
       <div class="pn-hud-body">
@@ -1671,6 +1673,16 @@
     document.body.appendChild(hud);
     hud.style.display = state.hudVisible ? 'flex' : 'none';
     state.floatingHud = hud;
+    const hudToggle = document.createElement('button');
+    hudToggle.id = 'pn-ai-hud-toggle';
+    hudToggle.type = 'button';
+    hudToggle.textContent = '⚽ AI Panel';
+    hudToggle.setAttribute('aria-label', 'Show AI Vision panel');
+    hudToggle.setAttribute('aria-controls', hud.id);
+    hudToggle.style.display = state.hudVisible ? 'none' : 'inline-flex';
+    hudToggle.addEventListener('click', () => setHudVisibility(true));
+    document.body.appendChild(hudToggle);
+    state.floatingHudToggle = hudToggle;
     state.floatingHudElements = {
       stat: hud.querySelector('#pnStat'),
       clock: hud.querySelector('#pnClock'),
@@ -1792,16 +1804,22 @@
 
     makeDraggable(hud, hud.querySelector('#pnHudHeader'));
     hud.querySelector('#pnBtnMin').onclick = () => hud.classList.toggle('minimized');
-    hud.querySelector('#pnBtnClose').onclick = () => {
-      hud.style.display = 'none';
-      state.hudVisible = false;
-    };
+    hud.querySelector('#pnBtnHide').onclick = () => setHudVisibility(false);
+    hud.querySelector('#pnBtnClose').onclick = () => setHudVisibility(false);
   }
 
   function toggleHud() {
     if (!state.floatingHud) createFloatingHud();
-    state.hudVisible = !state.hudVisible;
-    if (state.floatingHud) state.floatingHud.style.display = state.hudVisible ? 'flex' : 'none';
+    setHudVisibility(!state.hudVisible);
+  }
+
+  function setHudVisibility(visible) {
+    state.hudVisible = visible;
+    if (state.floatingHud) state.floatingHud.style.display = visible ? 'flex' : 'none';
+    if (state.floatingHudToggle) {
+      state.floatingHudToggle.style.display = visible ? 'none' : 'inline-flex';
+      state.floatingHudToggle.setAttribute('aria-label', visible ? 'Hide AI Vision panel' : 'Show AI Vision panel');
+    }
   }
 
   let lastHudUpdateTime = 0;
