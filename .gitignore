@@ -17,6 +17,7 @@ playernation-ai-extension.zip
 __pycache__/
 *.py[cod]
 .venv/
+.venv-intel-gpu/
 venv/
 
 # Operating system and editor files
