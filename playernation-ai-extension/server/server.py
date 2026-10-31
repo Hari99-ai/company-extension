@@ -264,13 +264,23 @@ def train_football_model(sample_count: int) -> None:
             verbose=False
         )
 
-        best_weights = Path(trainer.trainer.best)
+        # Ultralytics can leave ``trainer.best`` pointing at last.pt on some
+        # Windows installs even when best.pt was written. Resolve from the
+        # configured run directory so the checkpoint we publish is explicit.
+        run_weights_dir = (TRAINING_RUNS_DIR / run_id / "weights").resolve()
+        best_weights = run_weights_dir / "best.pt"
         if not best_weights.is_file():
-            raise RuntimeError("YOLO training finished without producing best.pt.")
+            best_weights = run_weights_dir / "last.pt"
+        if not best_weights.is_file():
+            reported_best = getattr(trainer.trainer, "best", "")
+            raise RuntimeError(
+                f"YOLO training finished without best.pt or last.pt in {run_weights_dir} "
+                f"(trainer reported {reported_best!r})."
+            )
 
-        candidate_model = YOLO(str(best_weights))
         temporary_weights = FOOTBALL_MODEL_PATH.with_suffix(".tmp.pt")
         shutil.copy2(best_weights, temporary_weights)
+        candidate_model = YOLO(str(temporary_weights.resolve()))
         os.replace(temporary_weights, FOOTBALL_MODEL_PATH)
 
         with MODEL_LOCK:

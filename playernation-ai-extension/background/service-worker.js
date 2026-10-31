@@ -136,6 +136,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(err => sendResponse({ success: false, error: err.message }));
       return true;
 
+    case 'LOCAL_BACKEND_REQUEST':
+      handleLocalBackendRequest(payload)
+        .then(data => sendResponse({ success: true, data }))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+      return true;
+
     case 'CAPTURE_TAB_FRAME': {
       // Captures rendered viewport pixels bypassing CORS restrictions on <video> elements
       const winId = sender?.tab?.windowId || null;
@@ -174,6 +180,31 @@ async function handleLocalTrainingRequest(payload) {
     throw new Error(result.error || `Local training backend returned HTTP ${response.status}.`);
   }
   return result;
+}
+
+async function handleLocalBackendRequest(payload) {
+  const allowedRequests = { '/health': 'GET', '/detect': 'POST' };
+  if (!payload || allowedRequests[payload.endpoint] !== payload.method) {
+    throw new Error('Unsupported local backend request.');
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), payload.timeoutMs || 3000);
+  try {
+    const response = await fetch(`http://127.0.0.1:8000${payload.endpoint}`, {
+      method: payload.method,
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json', ...(payload.method === 'POST' ? { 'Content-Type': 'application/json' } : {}) },
+      ...(payload.method === 'POST' ? { body: JSON.stringify(payload.body) } : {})
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      throw new Error(result.error || `Local AI backend returned HTTP ${response.status}.`);
+    }
+    return result;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function handleStartDetection(tabIdFromSender, payload) {
