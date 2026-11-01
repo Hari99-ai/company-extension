@@ -14,7 +14,6 @@ const elements = {
   sourceDomainPill: document.getElementById('sourceDomainPill'),
   autoLogToggle: document.getElementById('autoLogToggle'),
   showHudLauncherToggle: document.getElementById('showHudLauncherToggle'),
-  bufferVideoToggle: document.getElementById('bufferVideoToggle'),
 
   btnStart: document.getElementById('btnStart'),
   btnPause: document.getElementById('btnPause'),
@@ -138,9 +137,6 @@ async function loadSavedSettings() {
         if (data.settings.showHudLauncher !== undefined && elements.showHudLauncherToggle) {
           elements.showHudLauncherToggle.checked = !!data.settings.showHudLauncher;
         }
-        if (elements.bufferVideoToggle) {
-          elements.bufferVideoToggle.checked = !!data.settings.bufferVideoEnabled;
-        }
 
         // Layer Toggles
         if (data.settings.showPlayers !== undefined && elements.toggleShowPlayers) {
@@ -202,11 +198,6 @@ function updateOverlaySettings(partialSettings = {}) {
 }
 
 function setupEventListeners() {
-  elements.bufferVideoToggle?.addEventListener('change', () => {
-    const enabled = elements.bufferVideoToggle.checked;
-    updateOverlaySettings({ bufferVideoEnabled: enabled });
-    showToast(`Buffer Video: ${enabled ? 'ON' : 'OFF'}`);
-  });
   elements.toggleFootballTrainingReminders?.addEventListener('change', () => {
     const enabled = elements.toggleFootballTrainingReminders.checked;
     updateOverlaySettings({ footballTrainingRemindersEnabled: enabled });
