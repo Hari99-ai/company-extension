@@ -65,6 +65,7 @@
   const state = {
     isRunning: false,
     isPaused: false,
+    bufferPausedByVideo: false,
     isModelLoaded: false,
 
     captureManager: null,
@@ -91,6 +92,7 @@
 
     overlaySettings: {
       footballTrainingRemindersEnabled: true,
+      bufferVideoEnabled: false,
       showPlayers: true,
       showBall: true,
       showHudLauncher: true,
@@ -202,6 +204,7 @@
       if (state.pnAdapter) state.pnAdapter.setAutoLogging(state.autoLogging);
 
       if (data.settings.showPlayers !== undefined) state.overlaySettings.showPlayers = !!data.settings.showPlayers;
+      state.overlaySettings.bufferVideoEnabled = !!data.settings.bufferVideoEnabled;
       state.overlaySettings.footballTrainingRemindersEnabled = data.settings.footballTrainingRemindersEnabled !== false;
       if (data.settings.showBall !== undefined) state.overlaySettings.showBall = !!data.settings.showBall;
       if (data.settings.showHudLauncher !== undefined) {
@@ -279,6 +282,10 @@
       case 'CMD_UPDATE_OVERLAY_SETTINGS':
         if (payload) {
           Object.assign(state.overlaySettings, payload);
+          if (payload.bufferVideoEnabled === false && state.bufferPausedByVideo) {
+            state.bufferPausedByVideo = false;
+            if (state.isRunning && !state.isPaused) state.captureManager?.resume();
+          }
           if (payload.footballTrainingRemindersEnabled === false && state.isReminderPinpointMode) {
             disablePinpointBallMode();
           }
@@ -2034,6 +2041,13 @@
   function handleCaptureStatus(evt) {
     if (evt.currentTime != null) state.telemetry.currentTime = evt.currentTime;
     if (evt.isLive !== undefined) state.telemetry.isLive = evt.isLive;
+    if (evt.state === 'buffering' && state.overlaySettings.bufferVideoEnabled && state.isRunning && !state.isPaused) {
+      state.bufferPausedByVideo = true;
+      state.captureManager?.pause();
+    } else if (evt.state === 'playing' && state.bufferPausedByVideo) {
+      state.bufferPausedByVideo = false;
+      if (state.isRunning && !state.isPaused) state.captureManager?.resume();
+    }
     if (evt.state === 'cors_protected') {
       state.telemetry.isCorsProtected = true;
       state.telemetry.status = 'cors_protected';

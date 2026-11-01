@@ -268,6 +268,38 @@ export class BallTracker {
       );
     }
 
+    // A manual pinpoint is an explicit user lock. Do not replace it with an
+    // unrelated detector proposal on the next frame (the old flow kept the
+    // LOCKED badge while adopting any detected box, which made the box jump
+    // onto players and other false positives). The user can release the lock
+    // to resume automatic tracking, or pinpoint again to move it.
+    if (this.manualLock && this.currentBall?.isManual) {
+      let nearestPlayer = null;
+      let minDistance = Infinity;
+      for (const player of trackedPlayers) {
+        const pcx = player.x + player.width / 2;
+        const pcy = player.y + player.height * 0.85;
+        const dist = Math.hypot(this.currentBall.cx - pcx, this.currentBall.cy - pcy);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestPlayer = player;
+        }
+      }
+      const inPossession = minDistance < 0.065 ? nearestPlayer : null;
+      this.currentPossessionPlayerId = inPossession?.id ?? null;
+      return {
+        ball: this.currentBall,
+        vx: this.vx,
+        vy: this.vy,
+        speed: this.speed,
+        trail: this.trail,
+        lostFrames: 0,
+        inPossessionPlayer: inPossession,
+        manualLock: true,
+        memoryState: this.memoryState
+      };
+    }
+
     // ── Derive search centre ────────────────────────────────────────────────
     // Prefer: (1) velocity-extrapolated current ball, (2) Kalman prediction, (3) centre
     let targetCx, targetCy;

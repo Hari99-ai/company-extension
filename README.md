@@ -137,3 +137,10 @@ npm test
 - `Timestamps`: Time parsing, formatting, deduplication, and seek jump detection.
 
 # company-extension
+
+
+
+
+cd D:\all\company\playernation-ai-extension             
+.\.venv\Scripts\python.exe server\server.py
+npm run backend
