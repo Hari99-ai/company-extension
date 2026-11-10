@@ -17,7 +17,7 @@ export class FootballYoloDetector {
   constructor(options = {}) {
     this.modelPath = options.modelPath || 'models/yolov8n.onnx';
     this.playerConfidence = options.playerConfidence || 0.25;
-    this.ballConfidence = options.ballConfidence || 0.08;
+    this.ballConfidence = options.ballConfidence || 0.25;
     this.iouThreshold = options.iouThreshold || 0.45;
 
     this.session = null;

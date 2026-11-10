@@ -98,7 +98,8 @@
       showBallTrail: true,
       showTelemetryBadge: true,
       playerConfidence: 0.25,
-      ballConfidence: 0.08,
+      // Filter low-confidence false footballs on signage and players.
+      ballConfidence: 0.25,
       debugCoords: false        // toggle with chrome.storage / popup
     },
     lastFramePackage: null,
@@ -211,7 +212,9 @@
       if (data.settings.showBallTrail !== undefined) state.overlaySettings.showBallTrail = !!data.settings.showBallTrail;
       if (data.settings.showTelemetryBadge !== undefined) state.overlaySettings.showTelemetryBadge = !!data.settings.showTelemetryBadge;
       if (data.settings.playerConfidence !== undefined) state.overlaySettings.playerConfidence = data.settings.playerConfidence;
-      if (data.settings.ballConfidence !== undefined) state.overlaySettings.ballConfidence = data.settings.ballConfidence;
+      if (data.settings.ballConfidence !== undefined) {
+        state.overlaySettings.ballConfidence = Math.max(0.25, Number(data.settings.ballConfidence) || 0.25);
+      }
       if (Number.isInteger(data.settings.minimumTrainingSamples)) {
         state.minimumTrainingSamples = Math.max(10, Math.min(10000, data.settings.minimumTrainingSamples));
       }
@@ -458,7 +461,7 @@
       state.detector = new FootballYoloDetector({
         modelPath: 'models/yolov8n.onnx',
         playerConfidence: state.overlaySettings.playerConfidence || 0.25,
-        ballConfidence: state.overlaySettings.ballConfidence || 0.12,
+        ballConfidence: Math.max(0.25, state.overlaySettings.ballConfidence || 0.25),
         iouThreshold: 0.45
       });
       try {
@@ -599,10 +602,12 @@
     if (rect.width <= 0 || rect.height <= 0) return null;
 
     const now = performance.now();
-    // Throttle tab capture to max 12 FPS (~80ms)
-    if (_cachedCapturedResult && (now - _lastCaptureTime < 80)) {
+    // Chrome limits captureVisibleTab to 2 calls per second. Reuse the last
+    // successful crop between captures instead of dropping frames on quota.
+    if (_lastCaptureTime && now - _lastCaptureTime < 550) {
       return _cachedCapturedResult;
     }
+    _lastCaptureTime = now;
 
     let resp = null;
     try {
@@ -669,7 +674,6 @@
     const dataUrl = _cropCanvas.toDataURL('image/jpeg', 0.80);
     const imageData = _cropCtx.getImageData(0, 0, 640, 640);
 
-    _lastCaptureTime = now;
     _cachedCapturedResult = {
       dataUrl,
       imageData,
@@ -786,14 +790,15 @@
     if (
       state.currentDetections.ball &&
       curLetterbox && curLetterbox.scale &&
-      hintVideo?.videoWidth && hintVideo?.videoHeight
+      (curLetterbox.sourceWidth || hintVideo?.videoWidth) &&
+      (curLetterbox.sourceHeight || hintVideo?.videoHeight)
     ) {
       if (typeof videoNormToModelNorm === 'function') {
         const h = videoNormToModelNorm(
           state.currentDetections.ball.cx,
           state.currentDetections.ball.cy,
-          hintVideo.videoWidth,
-          hintVideo.videoHeight,
+          curLetterbox.sourceWidth || hintVideo.videoWidth,
+          curLetterbox.sourceHeight || hintVideo.videoHeight,
           curLetterbox
         );
         hintCanvasX = h.hx;
@@ -824,7 +829,7 @@
           try {
             const bkdRes = await state.backendClient.detect(captured.dataUrl, {
               playerConfidence: state.overlaySettings.playerConfidence || 0.25,
-              ballConfidence: state.overlaySettings.ballConfidence || 0.08,
+              ballConfidence: Math.max(0.25, state.overlaySettings.ballConfidence || 0.25),
               hint_x: hintCanvasX,
               hint_y: hintCanvasY
             });
@@ -843,7 +848,7 @@
         if ((!detectedBall || detectedPlayers.length === 0) && state.isModelLoaded && state.detector) {
           try {
             state.detector.playerConfidence = state.overlaySettings.playerConfidence || 0.25;
-            state.detector.ballConfidence = state.overlaySettings.ballConfidence || 0.08;
+            state.detector.ballConfidence = Math.max(0.25, state.overlaySettings.ballConfidence || 0.25);
             const detResults = await state.detector.detect(captured.imageData, null, {
               hintX: hintCanvasX,
               hintY: hintCanvasY
@@ -872,7 +877,7 @@
           if (dataUrl) {
             const bkdRes = await state.backendClient.detect(dataUrl, {
               playerConfidence: state.overlaySettings.playerConfidence || 0.25,
-              ballConfidence: state.overlaySettings.ballConfidence || 0.08,
+              ballConfidence: Math.max(0.25, state.overlaySettings.ballConfidence || 0.25),
               hint_x: hintCanvasX,
               hint_y: hintCanvasY
             });
@@ -892,7 +897,7 @@
       if ((!detectedBall || detectedPlayers.length === 0) && state.isModelLoaded && state.detector) {
         try {
           state.detector.playerConfidence = state.overlaySettings.playerConfidence || 0.25;
-          state.detector.ballConfidence = state.overlaySettings.ballConfidence || 0.08;
+          state.detector.ballConfidence = Math.max(0.25, state.overlaySettings.ballConfidence || 0.25);
           const detResults = await state.detector.detect(framePackage.imageData, null, {
             hintX: hintCanvasX,
             hintY: hintCanvasY
@@ -1216,12 +1221,35 @@
   }
 
   async function saveFootballTrainingSample(x, y, matchTimestamp) {
-    const imageData = state.lastTrainingImageData || state.lastFramePackage?.imageData;
-    if (!imageData || !createFootballTrainingAnnotation) {
+    let imageData = state.lastTrainingImageData || state.lastFramePackage?.imageData;
+    let letterbox = state.lastFramePackage?.letterbox;
+    const hasPixels = (candidate) => (
+      candidate && Number.isInteger(candidate.width) && Number.isInteger(candidate.height) &&
+      candidate.width > 1 && candidate.height > 1 &&
+      candidate.data && candidate.data.length >= candidate.width * candidate.height * 4
+    );
+
+    if (!hasPixels(imageData)) {
+      const captured = await captureTabCroppedFrame(state.captureManager?.videoElement);
+      if (hasPixels(captured?.imageData)) {
+        imageData = captured.imageData;
+        letterbox = captured.letterbox || letterbox;
+      }
+    }
+
+    if (!hasPixels(imageData) || !createFootballTrainingAnnotation) {
       throw new Error('No captured video frame is available. Keep the match playing and try again.');
     }
 
-    const image = imageDataToDataUrl(imageData, 0.95);
+    let image = imageDataToDataUrl(imageData, 0.95);
+    if (!image && state.captureManager?.videoElement) {
+      const captured = await captureTabCroppedFrame(state.captureManager.videoElement);
+      if (hasPixels(captured?.imageData)) {
+        imageData = captured.imageData;
+        letterbox = captured.letterbox || letterbox;
+        image = imageDataToDataUrl(imageData, 0.95);
+      }
+    }
     if (!image) throw new Error('Could not encode the captured video frame.');
 
     const sample = {
@@ -1233,7 +1261,7 @@
       imageHeight: imageData.height,
       image,
       annotations: [
-        createFootballTrainingAnnotation(x, y, state.lastFramePackage?.letterbox)
+        createFootballTrainingAnnotation(x, y, letterbox)
       ],
       uploadedForTraining: false
     };

@@ -1,0 +1,5 @@
+path: D:/all/company/playernation-ai-extension/training_data/football/datasets/football-228-1793517852
+train: images/train
+val: images/val
+names:
+  0: football

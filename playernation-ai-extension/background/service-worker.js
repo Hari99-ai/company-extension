@@ -19,7 +19,7 @@ const STATE = {
   }
 };
 
-// Initialize default storage on install & configure CORS headers for media streams
+// Initialize default storage on install.
 chrome.runtime.onInstalled.addListener(() => {
   console.log('[PlayerNation AI Logger] Extension Installed.');
   chrome.storage.local.set({
@@ -39,32 +39,16 @@ chrome.runtime.onInstalled.addListener(() => {
       showBallTrail: true,
       showTelemetryBadge: true,
       playerConfidence: 0.25,
-      ballConfidence: 0.08
+      ballConfidence: 0.25
     },
     eventLogs: []
   });
 
-  // Enable CORS header modification for media streams so videos never taint canvas
+  // Remove the legacy global CORS rule. It overwrote S3 response headers and
+  // caused presigned uploads (including PlayerNation image uploads) to fail.
   if (chrome.declarativeNetRequest) {
-    chrome.declarativeNetRequest.updateDynamicRules({
-      removeRuleIds: [1001],
-      addRules: [{
-        id: 1001,
-        priority: 1,
-        action: {
-          type: 'modifyHeaders',
-          responseHeaders: [
-            { header: 'Access-Control-Allow-Origin', operation: 'set', value: '*' },
-            { header: 'Access-Control-Allow-Methods', operation: 'set', value: 'GET, HEAD, OPTIONS' },
-            { header: 'Access-Control-Allow-Headers', operation: 'set', value: '*' }
-          ]
-        },
-        condition: {
-          urlFilter: '*',
-          resourceTypes: ['media', 'xmlhttprequest', 'other']
-        }
-      }]
-    }).catch(e => console.warn('[PlayerNation AI SW] Declarative Net Request notice:', e));
+    chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [1001] })
+      .catch(e => console.warn('[PlayerNation AI SW] Could not remove legacy CORS rule:', e));
   }
 });
 

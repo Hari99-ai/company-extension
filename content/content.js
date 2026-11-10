@@ -319,6 +319,30 @@
 
     const matchTime = framePackage.videoTimestamp;
 
+    // A tainted canvas cannot provide source pixels. Keep the video clock and
+    // HUD current, but do not run inference on the transparent fallback frame
+    // or let it generate false tracking and event data.
+    if (framePackage.isCorsTainted) {
+      state.currentDetections.ball = null;
+      state.currentDetections.players = [];
+      state.currentDetections.ballTrail = [];
+      state.telemetry.currentTime = matchTime;
+      state.telemetry.videoWidth = framePackage.videoWidth;
+      state.telemetry.videoHeight = framePackage.videoHeight;
+      state.telemetry.playbackRate = framePackage.playbackRate;
+      state.telemetry.videoPaused = framePackage.isPaused;
+      state.telemetry.fps = state.fpsCounter.fps;
+      state.telemetry.latencyMs = 0;
+      state.telemetry.ballDetected = false;
+      state.telemetry.ballConfidence = 0;
+      state.telemetry.ballLostFrames = 0;
+      state.telemetry.playersCount = 0;
+      state.telemetry.trackedObjectsCount = 0;
+      renderVideoOverlay(framePackage);
+      updateFloatingHud();
+      return;
+    }
+
     // 1. Run YOLO Inference if model is loaded
     let detectedBall = null;
     let detectedPlayers = [];

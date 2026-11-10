@@ -10,7 +10,7 @@ test('Default overlay settings structure and value defaults', () => {
     showBallTrail: true,
     showTelemetryBadge: true,
     playerConfidence: 0.25,
-    ballConfidence: 0.08
+    ballConfidence: 0.25
   };
 
   assert.equal(defaultOverlaySettings.showPlayers, true, 'Human/player overlay default should be true');
@@ -19,7 +19,7 @@ test('Default overlay settings structure and value defaults', () => {
   assert.equal(defaultOverlaySettings.showBallTrail, true, 'Ball trajectory trail default should be true');
   assert.equal(defaultOverlaySettings.showTelemetryBadge, true, 'Telemetry HUD badge default should be true');
   assert.equal(defaultOverlaySettings.playerConfidence, 0.25, 'Player confidence level default should be 0.25');
-  assert.equal(defaultOverlaySettings.ballConfidence, 0.08, 'Football confidence level default should be 0.08');
+  assert.equal(defaultOverlaySettings.ballConfidence, 0.25, 'Football confidence level default should be 0.25');
 });
 
 test('Overlay settings update and toggle mutations', () => {

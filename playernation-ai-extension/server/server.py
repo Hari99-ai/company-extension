@@ -82,16 +82,23 @@ MODEL_LOCK = RLock()
 TRAINING_LOCK = threading.Lock()
 TRAINING_DATA_LOCK = RLock()
 SERVER_STATE["football_model"] = any((football_model, football_retrain_model, football_labelstudio_model, football_detector))
-SERVER_STATE["model_name"] = " + ".join(
-    ["yolov8n.pt"] + [
+
+
+def refresh_model_name() -> None:
+    """Keep backend health reporting in the same priority order as inference."""
+    active_names = [
         name for name, loaded in (
             ("football_detector", football_detector),
             ("football_finetuned", football_model),
             ("football_retrain_candidate", football_retrain_model),
             ("football_ball_labelstudio_candidate", football_labelstudio_model),
+            ("yolov8n", model),
         ) if loaded is not None
     ]
-)
+    SERVER_STATE["model_name"] = " + ".join(active_names) or "no models loaded"
+
+
+refresh_model_name()
 TRAINING_LABELS_DIR.mkdir(parents=True, exist_ok=True)
 TRAINING_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 SERVER_STATE["training_samples"] = len(list(TRAINING_LABELS_DIR.glob("*.txt")))
@@ -101,6 +108,7 @@ except (FileNotFoundError, ValueError):
     LAST_TRAINED_SAMPLE_COUNT = 0
 LAST_TRAINING_ATTEMPT_COUNT = LAST_TRAINED_SAMPLE_COUNT
 print(f"[PlayerNation AI Server] Model loaded successfully on device: {SERVER_STATE['device']}")
+print(f"[PlayerNation AI Server] Active detection models: {SERVER_STATE['model_name']}", flush=True)
 
 # Warmup run
 try:
@@ -197,6 +205,41 @@ def fuse_ball_predictions(predictions: List[Dict[str, Any]], iou_threshold: floa
         merged["confidence"] = round(min(0.99, max(weights) + 0.04 * (len(cluster) - 1)), 3)
         merged["classId"] = 32
         merged["className"] = "ball"
+        merged["modelSupport"] = len(cluster)
+        fused.append(merged)
+    return fused
+
+
+def fuse_player_predictions(predictions: List[Dict[str, Any]], iou_threshold: float = 0.50) -> List[Dict[str, Any]]:
+    """Merge overlapping player/referee boxes from trained and base models."""
+    remaining = sorted(predictions, key=lambda item: item["confidence"], reverse=True)
+    fused: List[Dict[str, Any]] = []
+    while remaining:
+        seed = remaining.pop(0)
+        cluster = [seed]
+        keep = []
+        for candidate in remaining:
+            if candidate.get("role") != seed.get("role"):
+                keep.append(candidate)
+                continue
+            left = max(seed["x"], candidate["x"])
+            top = max(seed["y"], candidate["y"])
+            right = min(seed["x"] + seed["width"], candidate["x"] + candidate["width"])
+            bottom = min(seed["y"] + seed["height"], candidate["y"] + candidate["height"])
+            intersection = max(0.0, right - left) * max(0.0, bottom - top)
+            union = seed["width"] * seed["height"] + candidate["width"] * candidate["height"] - intersection
+            if union > 0 and intersection / union >= iou_threshold:
+                cluster.append(candidate)
+            else:
+                keep.append(candidate)
+        remaining = keep
+
+        weights = [max(0.01, item["confidence"]) for item in cluster]
+        total_weight = sum(weights)
+        merged = dict(seed)
+        for key in ("x", "y", "width", "height"):
+            merged[key] = sum(item[key] * weight for item, weight in zip(cluster, weights)) / total_weight
+        merged["confidence"] = round(min(0.99, max(weights) + 0.03 * (len(cluster) - 1)), 3)
         merged["modelSupport"] = len(cluster)
         fused.append(merged)
     return fused
@@ -335,7 +378,7 @@ def train_football_model(sample_count: int) -> None:
         with MODEL_LOCK:
             football_model = candidate_model
             SERVER_STATE["football_model"] = True
-            SERVER_STATE["model_name"] = "five-model football ensemble"
+            refresh_model_name()
 
         LAST_TRAINED_SAMPLE_COUNT = sample_count
         TRAINING_STATE_PATH.write_text(str(sample_count), encoding="utf-8")
@@ -508,24 +551,60 @@ def detect():
 
     min_conf = min(player_conf, ball_conf)
 
-    # Run a five-checkpoint ball ensemble. Checkpoints use different class IDs,
-    # so each model is queried with its own ball class and boxes are fused below.
+    # Run the four football-trained checkpoints first, then use COCO YOLO as
+    # the final general-purpose pass. Checkpoints use different class IDs.
+    model_ball_counts: Dict[str, int] = {}
     with MODEL_LOCK:
         active_football_model = football_model
         active_retrain_model = football_retrain_model
         active_labelstudio_model = football_labelstudio_model
         active_football_detector = football_detector
+        balls: List[Dict[str, Any]] = []
+        football_detector_results = []
+        football_detector_results = active_football_detector.predict(
+            img, conf=min_conf, iou=iou_thresh, verbose=False,
+            device=SERVER_STATE['device'], classes=[0, 1, 2], imgsz=960
+        ) if active_football_detector else []
+        if football_detector_results:
+            detector_balls = collect_ball_predictions(
+                football_detector_results, w_img, h_img, ball_conf, class_ids=(0,)
+            )
+            model_ball_counts["football_detector"] = len(detector_balls)
+            balls.extend(detector_balls)
+
+        ensemble_models = [
+            ("football_finetuned", active_football_model),
+            ("football_retrain_candidate", active_retrain_model),
+            ("football_ball_labelstudio_candidate", active_labelstudio_model),
+        ]
+        for model_label, ball_model in ensemble_models:
+            if ball_model is None:
+                continue
+            ball_results = ball_model.predict(
+                img, conf=ball_conf, iou=iou_thresh, verbose=False,
+                device=SERVER_STATE['device'], classes=[0], imgsz=960
+            )
+            model_balls = collect_ball_predictions(
+                ball_results, w_img, h_img, ball_conf, class_ids=(0,)
+            )
+            model_ball_counts[model_label] = len(model_balls)
+            balls.extend(model_balls)
+
+        # Base YOLO is the final fallback and contributes both ball and person
+        # proposals even when football-specific checkpoints are available.
         results = model.predict(
             img, conf=min_conf, iou=iou_thresh, verbose=False,
             device=SERVER_STATE['device'], classes=[0, 32], imgsz=960
-        )
-        balls = collect_ball_predictions(results, w_img, h_img, min(0.03, ball_conf))
+        ) if model is not None else []
+        yolo_balls = collect_ball_predictions(results, w_img, h_img, min(0.03, ball_conf))
+        model_ball_counts["yolov8n.pt"] = len(yolo_balls)
+        balls.extend(yolo_balls)
 
-        best_full_frame_confidence = max((ball["confidence"] for ball in balls), default=0)
-        if best_full_frame_confidence < 0.30:
-            zoom_results = []
+        best_full_frame_confidence = max((ball["confidence"] for ball in yolo_balls), default=0)
+        if best_full_frame_confidence < 0.30 and model is not None:
             offset_x = 0
             offset_y = 0
+            zoom_results = []
             if hint_x is not None and hint_y is not None:
                 crop_size = max(1, round(min(w_img, h_img) * 0.24))
                 offset_x = max(0, min(w_img - crop_size, round(hint_x * w_img - crop_size / 2)))
@@ -533,55 +612,19 @@ def detect():
                 zoom_frame = img[offset_y:offset_y + crop_size, offset_x:offset_x + crop_size]
                 if zoom_frame.size:
                     zoom_results = model.predict(
-                        zoom_frame,
-                        conf=min(0.03, ball_conf),
-                        iou=iou_thresh,
-                        imgsz=640,
-                        verbose=False,
-                        device=SERVER_STATE['device'],
-                        classes=[32]
+                        zoom_frame, conf=min(0.03, ball_conf), iou=iou_thresh,
+                        imgsz=640, verbose=False, device=SERVER_STATE['device'], classes=[32]
                     )
             else:
                 zoom_results = model.predict(
-                    img,
-                    conf=min(0.03, ball_conf),
-                    iou=iou_thresh,
-                    imgsz=960,
-                    verbose=False,
-                    device=SERVER_STATE['device'],
-                    classes=[32]
+                    img, conf=min(0.03, ball_conf), iou=iou_thresh,
+                    imgsz=960, verbose=False, device=SERVER_STATE['device'], classes=[32]
                 )
-            balls.extend(
-                collect_ball_predictions(
-                    zoom_results,
-                    w_img,
-                    h_img,
-                    ball_conf,
-                    offset_x,
-                    offset_y
-                )
+            zoom_balls = collect_ball_predictions(
+                zoom_results, w_img, h_img, ball_conf, offset_x, offset_y
             )
-
-        football_detector_results = active_football_detector.predict(
-            img, conf=min_conf, iou=iou_thresh, verbose=False,
-            device=SERVER_STATE['device'], classes=[0, 1, 2], imgsz=960
-        ) if active_football_detector else []
-        if football_detector_results:
-            balls.extend(collect_ball_predictions(
-                football_detector_results, w_img, h_img, ball_conf, class_ids=(0,)
-            ))
-
-        ensemble_models = [active_football_model, active_retrain_model, active_labelstudio_model]
-        for ball_model in ensemble_models:
-            if ball_model is None:
-                continue
-            ball_results = ball_model.predict(
-                img, conf=ball_conf, iou=iou_thresh, verbose=False,
-                device=SERVER_STATE['device'], classes=[0], imgsz=960
-            )
-            balls.extend(collect_ball_predictions(
-                ball_results, w_img, h_img, ball_conf, class_ids=(0,)
-            ))
+            model_ball_counts["yolov8n.pt recovery"] = len(zoom_balls)
+            balls.extend(zoom_balls)
         balls = fuse_ball_predictions(balls)
 
     t1 = time.perf_counter()
@@ -590,7 +633,7 @@ def detect():
     SERVER_STATE["frames_processed"] += 1
     SERVER_STATE["total_latency_ms"] += latency_ms
 
-    players: List[Dict[str, Any]] = []
+    player_proposals: List[Dict[str, Any]] = []
     all_detections: List[Dict[str, Any]] = []
 
     # The custom detector uses class order: ball, player, referee.
@@ -609,11 +652,10 @@ def detect():
                 "confidence": round(conf, 3), "classId": 0,
                 "className": role_names[cls_id], "role": role_names[cls_id]
             }
-            players.append(det_obj)
-            all_detections.append(det_obj)
+            player_proposals.append(det_obj)
 
     # COCO Class mapping: 0 = person (player), 32 = sports ball (football)
-    if not active_football_detector and len(results) > 0 and results[0].boxes is not None:
+    if len(results) > 0 and results[0].boxes is not None:
         boxes = results[0].boxes
         for box in boxes:
             cls_id = int(box.cls[0].item())
@@ -637,8 +679,11 @@ def detect():
 
             if cls_id == 0 and conf >= player_conf:
                 det_obj["className"] = "player"
-                players.append(det_obj)
-                all_detections.append(det_obj)
+                det_obj["role"] = "player"
+                player_proposals.append(det_obj)
+
+    players = fuse_player_predictions(player_proposals)
+    all_detections.extend(players)
     all_detections.extend(balls)
 
     if hint_x is not None and hint_y is not None and balls:
@@ -651,6 +696,19 @@ def detect():
     else:
         best_ball = max(balls, key=lambda b: b["confidence"]) if balls else None
 
+    ball_summary = (
+        f"ball detected ({best_ball['confidence']:.0%})"
+        if best_ball else "no ball"
+    )
+    print(
+        f"[PlayerNation AI] Frame {SERVER_STATE['frames_processed']}: "
+        f"{ball_summary}; {len(players)} players; {latency_ms:.0f} ms\n"
+        f"  Ball proposals by model: "
+        f"{', '.join(f'{name}={count}' for name, count in model_ball_counts.items()) or 'none'}; "
+        f"fused footballs={len(balls)}",
+        flush=True,
+    )
+
     return jsonify({
         "success": True,
         "backend": f"Local PyTorch YOLOv8 ({SERVER_STATE['device'].upper()})",
@@ -661,6 +719,8 @@ def detect():
         "ball": best_ball,
         "allBalls": balls,
         "allDetections": all_detections,
+        "modelsUsed": list(model_ball_counts.keys()),
+        "modelBallCounts": model_ball_counts,
         "totalDetections": len(all_detections)
     })
 

@@ -478,9 +478,9 @@ export class VideoCaptureManager {
           this._isCorsTainted = true;
           if (!this._corsWarned) {
             this._corsWarned = true;
-            const corsErr = new Error('Live stream video element is cross-origin protected (CORS). Live clock & HUD active.');
-            corsErr.code = 'CORS_TAINTED';
-            this.onError(corsErr);
+            // Cross-origin media is expected on many streaming sites. The
+            // content script switches to tab screenshot capture for these
+            // frames, so report a capture status instead of a fatal error.
             this.onStatusChange({
               state: 'cors_protected',
               isLive: this.isLive,

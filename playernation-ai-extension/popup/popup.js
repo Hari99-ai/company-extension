@@ -162,9 +162,12 @@ async function loadSavedSettings() {
           if (elements.playerConfVal) elements.playerConfVal.textContent = `${pVal}%`;
         }
         if (data.settings.ballConfidence !== undefined) {
-          const bVal = Math.round(data.settings.ballConfidence * 100);
+          const bVal = Math.max(25, Math.round(data.settings.ballConfidence * 100));
           if (elements.sliderBallConf) elements.sliderBallConf.value = bVal;
           if (elements.ballConfVal) elements.ballConfVal.textContent = `${bVal}%`;
+          if (bVal !== Math.round(data.settings.ballConfidence * 100)) {
+            updateOverlaySettings({ ballConfidence: bVal / 100 });
+          }
         }
         if (elements.toggleFootballTrainingReminders) {
           elements.toggleFootballTrainingReminders.checked = data.settings.footballTrainingRemindersEnabled !== false;
@@ -185,6 +188,9 @@ async function loadSavedSettings() {
 }
 
 function updateOverlaySettings(partialSettings = {}) {
+  if (partialSettings.ballConfidence !== undefined) {
+    partialSettings = { ...partialSettings, ballConfidence: Math.max(0.25, partialSettings.ballConfidence) };
+  }
   chrome.storage.local.get('settings', (data) => {
     const settings = data.settings || {};
     Object.assign(settings, partialSettings);
@@ -441,7 +447,7 @@ async function handleStart() {
     showBallTrail: elements.toggleShowBallTrail ? elements.toggleShowBallTrail.checked : true,
     showTelemetryBadge: elements.toggleShowTelemetry ? elements.toggleShowTelemetry.checked : true,
     playerConfidence: elements.sliderPlayerConf ? parseInt(elements.sliderPlayerConf.value, 10) / 100 : 0.25,
-    ballConfidence: elements.sliderBallConf ? parseInt(elements.sliderBallConf.value, 10) / 100 : 0.08
+    ballConfidence: elements.sliderBallConf ? Math.max(0.25, parseInt(elements.sliderBallConf.value, 10) / 100) : 0.25
   };
 
   try {

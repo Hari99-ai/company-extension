@@ -436,9 +436,6 @@ export class VideoCaptureManager {
       if (err.name === 'SecurityError') {
         if (!this._corsWarned) {
           this._corsWarned = true;
-          const corsErr = new Error('Live stream video element is cross-origin protected (CORS). HUD active; enable Chrome Tab Capture for full pixel inference.');
-          corsErr.code = 'CORS_TAINTED';
-          this.onError(corsErr);
           this.onStatusChange({
             state: 'cors_protected',
             isLive: this.isLive,
